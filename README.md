@@ -149,6 +149,3 @@ curl -X POST http://localhost:8080/api/suggestions/1/approve
 
 ---
 
-## 📝 License
-
-This project is open source and available under the [MIT License](LICENSE).

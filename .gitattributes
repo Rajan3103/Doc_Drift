@@ -1,0 +1,5 @@
+# GitHub Linguist Overrides
+# Mark frontend directory as vendored code so GitHub classifies this project as Java (primary language)
+frontend/** linguist-vendored=true
+*.json linguist-detectable=false
+*.css linguist-detectable=false

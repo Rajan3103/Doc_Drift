@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
+import java.time.LocalDateTime;
 
 @Entity
 @Data
@@ -19,4 +20,10 @@ public class RepositoryConfig {
     
     @Column(nullable = false)
     private String name; // e.g., owner/repo
+
+    private String status = "HEALTHY"; // HEALTHY, DRIFTED, SCANNING
+
+    private LocalDateTime lastScannedAt;
+
+    private LocalDateTime createdAt = LocalDateTime.now();
 }

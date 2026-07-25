@@ -33,6 +33,19 @@ export async function rejectSuggestion(id) {
     return await response.json();
 }
 
+export async function fetchRepos() {
+    try {
+        const response = await fetch(`${BASE_URL}/repos`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch repositories');
+        }
+        return await response.json();
+    } catch (error) {
+        console.error("API Error:", error);
+        throw error;
+    }
+}
+
 export async function registerRepo(url, name) {
     const response = await fetch(`${BASE_URL}/repos`, {
         method: 'POST',
@@ -43,6 +56,26 @@ export async function registerRepo(url, name) {
     });
     if (!response.ok) {
         throw new Error('Failed to register repository');
+    }
+    return await response.json();
+}
+
+export async function deleteRepo(id) {
+    const response = await fetch(`${BASE_URL}/repos/${id}`, {
+        method: 'DELETE'
+    });
+    if (!response.ok) {
+        throw new Error('Failed to untrack repository');
+    }
+    return true;
+}
+
+export async function scanRepo(id) {
+    const response = await fetch(`${BASE_URL}/repos/${id}/scan`, {
+        method: 'POST'
+    });
+    if (!response.ok) {
+        throw new Error('Failed to trigger scan');
     }
     return await response.json();
 }

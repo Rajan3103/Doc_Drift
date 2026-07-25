@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Plus, Layers } from 'lucide-react';
+import { RefreshCw, Plus, Layers, GitFork, AlertTriangle } from 'lucide-react';
 import Header from './components/Header';
 import ReportList from './components/ReportList';
-import { fetchReports, registerRepo } from './api';
+import RepoList from './components/RepoList';
+import { fetchReports, fetchRepos, registerRepo } from './api';
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState('reports'); // 'reports' | 'repos'
   const [reports, setReports] = useState([]);
+  const [repos, setRepos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
@@ -19,8 +22,12 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchReports();
-      setReports(data);
+      const [reportsData, reposData] = await Promise.all([
+        fetchReports().catch(() => []),
+        fetchRepos().catch(() => [])
+      ]);
+      setReports(reportsData);
+      setRepos(reposData);
     } catch (err) {
       setError('Could not connect to the backend server. Is Spring Boot running on port 8080?');
     } finally {
@@ -49,7 +56,8 @@ export default function App() {
     
     setRegistering(true);
     try {
-      await registerRepo(repoUrl, repoName);
+      const newRepo = await registerRepo(repoUrl, repoName);
+      setRepos((prev) => [...prev, newRepo]);
       setShowModal(false);
       setRepoUrl('');
       setRepoName('');
@@ -59,6 +67,15 @@ export default function App() {
     } finally {
       setRegistering(false);
     }
+  };
+
+  const handleRepoUpdated = (updatedRepo) => {
+    setRepos((prev) => prev.map((r) => (r.id === updatedRepo.id ? updatedRepo : r)));
+    fetchReports().then(setReports).catch(() => {});
+  };
+
+  const handleRepoDeleted = (deletedId) => {
+    setRepos((prev) => prev.filter((r) => r.id !== deletedId));
   };
 
   // Count pending reviews
@@ -71,6 +88,7 @@ export default function App() {
       <Header />
 
       <main className="container" style={{ flex: 1, padding: '32px 24px' }}>
+        {/* Top Title & Actions Bar */}
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -99,7 +117,7 @@ export default function App() {
               className="btn btn-outline"
               onClick={loadData}
               disabled={loading}
-              title="Refresh Reports"
+              title="Refresh Reports & Repos"
             >
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
               <span>Refresh</span>
@@ -113,6 +131,54 @@ export default function App() {
               <span>Track Repository</span>
             </button>
           </div>
+        </div>
+
+        {/* Tab Navigation */}
+        <div style={{
+          display: 'flex',
+          gap: '12px',
+          borderBottom: '1px solid var(--border-glass)',
+          marginBottom: '24px'
+        }}>
+          <button
+            onClick={() => setActiveTab('reports')}
+            style={{
+              padding: '12px 20px',
+              background: 'none',
+              border: 'none',
+              borderBottom: activeTab === 'reports' ? '2px solid var(--accent-primary)' : '2px solid transparent',
+              color: activeTab === 'reports' ? 'white' : 'var(--text-muted)',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <AlertTriangle size={16} color={activeTab === 'reports' ? 'var(--accent-primary)' : 'currentColor'} />
+            <span>Drift Reports ({reports.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('repos')}
+            style={{
+              padding: '12px 20px',
+              background: 'none',
+              border: 'none',
+              borderBottom: activeTab === 'repos' ? '2px solid var(--accent-primary)' : '2px solid transparent',
+              color: activeTab === 'repos' ? 'white' : 'var(--text-muted)',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <GitFork size={16} color={activeTab === 'repos' ? 'var(--accent-primary)' : 'currentColor'} />
+            <span>Tracked Repositories ({repos.length})</span>
+          </button>
         </div>
 
         {error && (
@@ -131,10 +197,16 @@ export default function App() {
         {loading && !error ? (
           <div style={{ padding: '64px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
             <RefreshCw size={32} style={{ margin: '0 auto 16px', animation: 'spin 1s linear infinite' }} />
-            <p>Loading drift reports...</p>
+            <p>Loading dashboard data...</p>
           </div>
-        ) : (
+        ) : activeTab === 'reports' ? (
           <ReportList reports={reports} onStatusChange={handleStatusChange} />
+        ) : (
+          <RepoList
+            repos={repos}
+            onRepoUpdated={handleRepoUpdated}
+            onRepoDeleted={handleRepoDeleted}
+          />
         )}
       </main>
 
@@ -169,7 +241,7 @@ export default function App() {
                 </label>
                 <input
                   type="text"
-                  placeholder="docdrift/example"
+                  placeholder="Rajan3103/Doc_Drift"
                   value={repoName}
                   onChange={(e) => setRepoName(e.target.value)}
                   required
@@ -192,7 +264,7 @@ export default function App() {
                 </label>
                 <input
                   type="url"
-                  placeholder="https://github.com/docdrift/example"
+                  placeholder="https://github.com/Rajan3103/Doc_Drift"
                   value={repoUrl}
                   onChange={(e) => setRepoUrl(e.target.value)}
                   required

@@ -6,12 +6,13 @@
 
 ## 🚀 Features
 
+- 📡 **API Contract & Schema Drift Detection**: Continuously validates backend Controller routes, request/response DTOs, and validation rules against OpenAPI/Swagger YAML/JSON files and Markdown API tables, proactively flagging **Breaking Changes** with HTTP method badges and endpoint tags.
 - 🧠 **Semantic Drift Detection**: Performs AST/symbol-aware reasoning to detect breaking API signatures, removed config keys, outdated CLI parameters, and broken sample code.
-- ⚡ **Classification & Severity Scoring**: Categorizes drift events into distinct types (`API_SIGNATURE_MISMATCH`, `CONFIG_PROPERTY_CHANGED`, `CLI_USAGE_CHANGED`, `BEHAVIORAL_LOGIC_DRIFT`, `SAMPLE_CODE_BROKEN`) with confidence metrics (0–100%) and severity levels (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`).
-- 📁 **Multi-Document Scanning**: Proactively checks multiple documentation targets (`README.md`, `CONTRIBUTING.md`, `ARCHITECTURE.md`, `/docs/`) against commit diffs.
+- ⚡ **Classification & Severity Scoring**: Categorizes drift events into distinct types (`API_CONTRACT_BREAKING_CHANGE`, `SCHEMA_DRIFT`, `API_SIGNATURE_MISMATCH`, `CONFIG_PROPERTY_CHANGED`, `CLI_USAGE_CHANGED`, `BEHAVIORAL_LOGIC_DRIFT`, `SAMPLE_CODE_BROKEN`) with confidence metrics (0–100%) and severity levels (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`).
+- 📁 **Multi-Document & Spec Scanning**: Proactively checks multiple documentation targets (`README.md`, `openapi.yaml`, `swagger.json`, `docs/api.md`, `CONTRIBUTING.md`, `ARCHITECTURE.md`) against commit diffs.
 - 💡 **Actionable Patch Generation**: Uses Google's Gemini LLM to generate precise, structured text replacements (`oldText` → `suggestedText`) along with AI reasoning.
 - 🛡️ **Human-in-the-Loop Oversight**: No documentation is mutated automatically. Suggestions enter a review queue requiring explicit approval.
-- 🎨 **Modern Review Dashboard**: Premium glassmorphic React dashboard with severity badges, impacted symbol tags, side-by-side diffs, and one-click approve/reject actions.
+- 🎨 **Modern Review Dashboard**: Premium glassmorphic React dashboard with breaking change alert banners, HTTP method badges, severity tags, side-by-side diffs, and one-click approve/reject actions.
 - 🗄️ **Auditable Persistence**: Tracks all drift reports, suggested fixes, and reviewer actions in PostgreSQL for full historical auditability.
 
 ---

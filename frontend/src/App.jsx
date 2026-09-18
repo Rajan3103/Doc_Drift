@@ -87,6 +87,10 @@ export default function App() {
     return acc + (r.suggestions?.filter(s => s.status === 'PENDING' && (s.severity || '').toUpperCase() === 'CRITICAL').length || 0);
   }, 0);
 
+  const breakingCount = reports.reduce((acc, r) => {
+    return acc + (r.suggestions?.filter(s => s.status === 'PENDING' && s.isBreakingChange).length || 0);
+  }, 0);
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Header />
@@ -114,11 +118,11 @@ export default function App() {
                 borderRadius: '12px',
                 letterSpacing: '0.04em'
               }}>
-                SEMANTIC AI ACTIVE
+                SEMANTIC & CONTRACT AI
               </span>
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              Review and apply AI-suggested documentation fixes triggered by code changes.
+              Review and apply AI-suggested documentation & API contract fixes triggered by code changes.
             </p>
           </div>
 
@@ -131,7 +135,16 @@ export default function App() {
               </span>
             </div>
 
-            {criticalCount > 0 && (
+            {breakingCount > 0 && (
+              <div className="glass-panel" style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '8px', borderColor: 'rgba(239, 68, 68, 0.4)', background: 'rgba(239, 68, 68, 0.1)' }}>
+                <span style={{ fontSize: '0.8rem', color: '#fca5a5', fontWeight: 600 }}>⚠️ Breaking Changes:</span>
+                <span style={{ fontWeight: 700, color: '#ef4444' }}>
+                  {breakingCount}
+                </span>
+              </div>
+            )}
+
+            {criticalCount > 0 && breakingCount === 0 && (
               <div className="glass-panel" style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '8px', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
                 <AlertTriangle size={16} color="#ef4444" />
                 <span style={{ fontSize: '0.8rem', color: '#fca5a5' }}>Critical:</span>

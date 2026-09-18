@@ -128,10 +128,45 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
     );
   };
 
+  const getMethodColor = (method) => {
+    switch ((method || '').toUpperCase()) {
+      case 'GET': return { bg: 'rgba(59, 130, 246, 0.15)', text: '#60a5fa', border: 'rgba(59, 130, 246, 0.3)' };
+      case 'POST': return { bg: 'rgba(16, 185, 129, 0.15)', text: '#34d399', border: 'rgba(16, 185, 129, 0.3)' };
+      case 'PUT': return { bg: 'rgba(245, 158, 11, 0.15)', text: '#fbbf24', border: 'rgba(245, 158, 11, 0.3)' };
+      case 'DELETE': return { bg: 'rgba(239, 68, 68, 0.15)', text: '#f87171', border: 'rgba(239, 68, 68, 0.3)' };
+      case 'PATCH': return { bg: 'rgba(139, 92, 246, 0.15)', text: '#a78bfa', border: 'rgba(139, 92, 246, 0.3)' };
+      default: return { bg: 'rgba(255, 255, 255, 0.1)', text: '#e5e7eb', border: 'rgba(255, 255, 255, 0.2)' };
+    }
+  };
+
   const confidencePct = Math.round((suggestion.confidenceScore || 0.9) * 100);
 
   return (
     <div className="glass-panel animate-fade-in" style={{ padding: '24px', marginBottom: '20px' }}>
+      {/* Breaking Change Critical Banner */}
+      {suggestion.isBreakingChange && (
+        <div style={{
+          background: 'linear-gradient(90deg, rgba(239, 68, 68, 0.2) 0%, rgba(239, 68, 68, 0.05) 100%)',
+          border: '1px solid rgba(239, 68, 68, 0.4)',
+          borderRadius: '8px',
+          padding: '10px 14px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px'
+        }}>
+          <ShieldAlert size={18} color="#ef4444" style={{ flexShrink: 0 }} />
+          <div>
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#fca5a5', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Breaking API Contract Change
+            </span>
+            <p style={{ fontSize: '0.78rem', color: '#fecaca', margin: 0 }}>
+              This change alters the contract for consumers. Ensure documentation & client SDKs are updated prior to merging.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Top Header Row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -143,6 +178,36 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
           </div>
 
           {getSeverityBadge()}
+
+          {/* HTTP Method & Route if API Drift */}
+          {suggestion.httpMethod && (
+            <span style={{
+              background: getMethodColor(suggestion.httpMethod).bg,
+              color: getMethodColor(suggestion.httpMethod).text,
+              border: `1px solid ${getMethodColor(suggestion.httpMethod).border}`,
+              padding: '2px 8px',
+              borderRadius: '4px',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.72rem',
+              fontWeight: 700
+            }}>
+              {suggestion.httpMethod}
+            </span>
+          )}
+
+          {suggestion.endpointPath && (
+            <code style={{
+              background: 'rgba(0, 0, 0, 0.35)',
+              padding: '2px 8px',
+              borderRadius: '4px',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.75rem',
+              color: '#e2e8f0',
+              border: '1px solid var(--border-glass)'
+            }}>
+              {suggestion.endpointPath}
+            </code>
+          )}
 
           <span style={{
             background: 'rgba(99, 102, 241, 0.12)',
@@ -157,6 +222,20 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
           }}>
             ⚡ {getDriftTypeLabel()}
           </span>
+
+          {suggestion.schemaFormat && suggestion.schemaFormat !== 'GENERAL_PROSE' && (
+            <span style={{
+              background: 'rgba(168, 85, 247, 0.12)',
+              color: '#d8b4fe',
+              border: '1px solid rgba(168, 85, 247, 0.3)',
+              padding: '2px 8px',
+              borderRadius: '4px',
+              fontSize: '0.72rem',
+              fontWeight: 600
+            }}>
+              📄 {suggestion.schemaFormat.replace(/_/g, ' ')}
+            </span>
+          )}
 
           <span style={{
             background: 'rgba(255, 255, 255, 0.05)',
@@ -215,7 +294,7 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
         <Sparkles size={18} color="var(--accent-primary)" style={{ flexShrink: 0, marginTop: '2px' }} />
         <div>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-            Semantic Drift Analysis & Rationale
+            API Contract & Semantic Drift Analysis
           </span>
           <p style={{ fontSize: '0.875rem', color: 'var(--text-main)', marginTop: '4px', margin: 0, lineHeight: 1.6 }}>
             {suggestion.reason || 'No reasoning provided.'}

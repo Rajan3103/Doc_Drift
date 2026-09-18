@@ -38,9 +38,15 @@ public class DiffAnalyzerService {
 
     private static final List<String> DOC_CANDIDATES = List.of(
             "README.md",
+            "openapi.yaml",
+            "openapi.json",
+            "swagger.yaml",
+            "swagger.json",
+            "docs/api.md",
+            "docs/API.md",
+            "docs/openapi.yaml",
             "CONTRIBUTING.md",
             "ARCHITECTURE.md",
-            "docs/API.md",
             "docs/README.md"
     );
 
@@ -67,7 +73,7 @@ public class DiffAnalyzerService {
                         if (diff == null || diff.isBlank()) {
                             return Mono.empty();
                         }
-                        // Perform semantic analysis across candidate documentation files
+                        // Perform semantic and contract analysis across candidate documentation and spec files
                         return reactor.core.publisher.Flux.fromIterable(DOC_CANDIDATES)
                                 .flatMap(docPath -> gitHubService.getFileContent(repoName, docPath, payload.getRef())
                                         .filter(content -> content != null && !content.isBlank())
@@ -95,9 +101,13 @@ public class DiffAnalyzerService {
                                         DriftSuggestion s = new DriftSuggestion();
                                         s.setFilePath(dto.getFilePath() != null && !dto.getFilePath().isBlank() ? dto.getFilePath() : res.docPath);
                                         s.setDriftType(dto.getDriftType() != null ? dto.getDriftType() : "BEHAVIORAL_LOGIC_DRIFT");
-                                        s.setSeverity(dto.getSeverity() != null ? dto.getSeverity() : "MEDIUM");
+                                        s.setSeverity(dto.getSeverity() != null ? dto.getSeverity() : (Boolean.TRUE.equals(dto.getIsBreakingChange()) ? "CRITICAL" : "MEDIUM"));
                                         s.setConfidenceScore(dto.getConfidenceScore() != null ? dto.getConfidenceScore() : 0.90);
                                         s.setImpactedSymbol(dto.getImpactedSymbol() != null ? dto.getImpactedSymbol() : "General Codebase");
+                                        s.setIsBreakingChange(Boolean.TRUE.equals(dto.getIsBreakingChange()));
+                                        s.setHttpMethod(dto.getHttpMethod());
+                                        s.setEndpointPath(dto.getEndpointPath());
+                                        s.setSchemaFormat(dto.getSchemaFormat() != null ? dto.getSchemaFormat() : detectSchemaFormat(res.docPath));
                                         s.setOldText(dto.getOldText());
                                         s.setSuggestedText(dto.getSuggestedText());
                                         s.setReason(dto.getReason());
@@ -135,6 +145,27 @@ public class DiffAnalyzerService {
                         System.err.println("Failed LLM Pipeline: " + error.getMessage());
                     });
         }
+    }
+
+    private String detectSchemaFormat(String filePath) {
+        if (filePath == null) return "GENERAL_PROSE";
+        String lower = filePath.toLowerCase();
+        if (lower.contains("openapi") && (lower.endsWith(".yaml") || lower.endsWith(".yml"))) {
+            return "OPENAPI_YAML";
+        }
+        if (lower.contains("openapi") && lower.endsWith(".json")) {
+            return "OPENAPI_JSON";
+        }
+        if (lower.contains("swagger") && (lower.endsWith(".yaml") || lower.endsWith(".yml"))) {
+            return "SWAGGER_YAML";
+        }
+        if (lower.contains("swagger") && lower.endsWith(".json")) {
+            return "SWAGGER_JSON";
+        }
+        if (lower.endsWith(".md") && (lower.contains("api") || lower.contains("schema"))) {
+            return "MARKDOWN_TABLE";
+        }
+        return "GENERAL_PROSE";
     }
 
     private static class DocAnalysisResult {

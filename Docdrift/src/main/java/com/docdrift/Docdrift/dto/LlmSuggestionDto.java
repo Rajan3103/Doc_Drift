@@ -9,6 +9,10 @@ public class LlmSuggestionDto {
     private String severity;
     private Double confidenceScore;
     private String impactedSymbol;
+    private Boolean isBreakingChange;
+    private String httpMethod;
+    private String endpointPath;
+    private String schemaFormat;
     private String oldText;
     private String suggestedText;
     private String reason;

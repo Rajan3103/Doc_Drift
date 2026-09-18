@@ -78,9 +78,13 @@ export default function App() {
     setRepos((prev) => prev.filter((r) => r.id !== deletedId));
   };
 
-  // Count pending reviews
+  // Count pending reviews & critical drifts
   const pendingCount = reports.reduce((acc, r) => {
     return acc + (r.suggestions?.filter(s => s.status === 'PENDING').length || 0);
+  }, 0);
+
+  const criticalCount = reports.reduce((acc, r) => {
+    return acc + (r.suggestions?.filter(s => s.status === 'PENDING' && (s.severity || '').toUpperCase() === 'CRITICAL').length || 0);
   }, 0);
 
   return (
@@ -98,13 +102,27 @@ export default function App() {
           gap: '16px'
         }}>
           <div>
-            <h1 style={{ fontSize: '1.75rem', marginBottom: '4px' }}>Review Dashboard</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <h1 style={{ fontSize: '1.75rem', margin: 0 }}>Review Dashboard</h1>
+              <span style={{
+                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2))',
+                border: '1px solid rgba(99, 102, 241, 0.4)',
+                color: '#c084fc',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: '12px',
+                letterSpacing: '0.04em'
+              }}>
+                SEMANTIC AI ACTIVE
+              </span>
+            </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
               Review and apply AI-suggested documentation fixes triggered by code changes.
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
             <div className="glass-panel" style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Layers size={16} color="var(--accent-primary)" />
               <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Pending Reviews:</span>
@@ -112,6 +130,16 @@ export default function App() {
                 {pendingCount}
               </span>
             </div>
+
+            {criticalCount > 0 && (
+              <div className="glass-panel" style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '8px', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+                <AlertTriangle size={16} color="#ef4444" />
+                <span style={{ fontSize: '0.8rem', color: '#fca5a5' }}>Critical:</span>
+                <span style={{ fontWeight: 700, color: '#ef4444' }}>
+                  {criticalCount}
+                </span>
+              </div>
+            )}
 
             <button
               className="btn btn-outline"

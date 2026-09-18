@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, X, FileText, AlertCircle, Sparkles } from 'lucide-react';
+import { Check, X, FileText, AlertCircle, Sparkles, AlertTriangle, ShieldAlert, Cpu, Percent } from 'lucide-react';
 import { approveSuggestion, rejectSuggestion } from '../api';
 
 export default function SuggestionCard({ suggestion, onStatusChange }) {
@@ -30,6 +30,50 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const getSeverityBadge = () => {
+    const sev = (suggestion.severity || 'MEDIUM').toUpperCase();
+    let bg = 'rgba(245, 158, 11, 0.15)';
+    let color = '#f59e0b';
+    let icon = <AlertTriangle size={13} />;
+
+    if (sev === 'CRITICAL') {
+      bg = 'rgba(239, 68, 68, 0.2)';
+      color = '#ef4444';
+      icon = <ShieldAlert size={13} />;
+    } else if (sev === 'HIGH') {
+      bg = 'rgba(249, 115, 22, 0.2)';
+      color = '#f97316';
+      icon = <AlertTriangle size={13} />;
+    } else if (sev === 'LOW') {
+      bg = 'rgba(56, 189, 248, 0.15)';
+      color = '#38bdf8';
+      icon = <AlertCircle size={13} />;
+    }
+
+    return (
+      <span style={{
+        background: bg,
+        color: color,
+        border: `1px solid ${color}40`,
+        padding: '3px 10px',
+        borderRadius: '6px',
+        fontSize: '0.72rem',
+        fontWeight: 700,
+        letterSpacing: '0.04em',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '4px'
+      }}>
+        {icon} {sev} SEVERITY
+      </span>
+    );
+  };
+
+  const getDriftTypeLabel = () => {
+    const type = suggestion.driftType || 'BEHAVIORAL_LOGIC_DRIFT';
+    return type.replace(/_/g, ' ');
   };
 
   const getStatusBadge = () => {
@@ -84,18 +128,80 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
     );
   };
 
+  const confidencePct = Math.round((suggestion.confidenceScore || 0.9) * 100);
+
   return (
     <div className="glass-panel animate-fade-in" style={{ padding: '24px', marginBottom: '20px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <FileText size={18} color="var(--accent-primary)" />
-          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '0.9rem' }}>
-            {suggestion.filePath}
+      {/* Top Header Row */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <FileText size={18} color="var(--accent-primary)" />
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>
+              {suggestion.filePath}
+            </span>
+          </div>
+
+          {getSeverityBadge()}
+
+          <span style={{
+            background: 'rgba(99, 102, 241, 0.12)',
+            color: '#a5b4fc',
+            border: '1px solid rgba(99, 102, 241, 0.3)',
+            padding: '3px 10px',
+            borderRadius: '6px',
+            fontSize: '0.72rem',
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.03em'
+          }}>
+            ⚡ {getDriftTypeLabel()}
+          </span>
+
+          <span style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            color: 'var(--text-muted)',
+            padding: '3px 8px',
+            borderRadius: '6px',
+            fontSize: '0.72rem',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px'
+          }}>
+            <Percent size={11} /> {confidencePct}% Confidence
           </span>
         </div>
+
         {getStatusBadge()}
       </div>
 
+      {/* Impacted Symbol Tag if available */}
+      {suggestion.impactedSymbol && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          marginBottom: '14px',
+          fontSize: '0.8rem',
+          color: 'var(--text-muted)'
+        }}>
+          <Cpu size={14} color="var(--accent-primary)" />
+          <span>Impacted Code Symbol:</span>
+          <code style={{
+            background: 'rgba(0, 0, 0, 0.4)',
+            padding: '2px 8px',
+            borderRadius: '4px',
+            color: '#cbd5e1',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.78rem',
+            border: '1px solid var(--border-glass)'
+          }}>
+            {suggestion.impactedSymbol}
+          </code>
+        </div>
+      )}
+
+      {/* AI Semantic Reasoning Box */}
       <div style={{
         background: 'rgba(255, 255, 255, 0.02)',
         borderLeft: '3px solid var(--accent-primary)',
@@ -108,15 +214,16 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
       }}>
         <Sparkles size={18} color="var(--accent-primary)" style={{ flexShrink: 0, marginTop: '2px' }} />
         <div>
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-            AI Reasoning
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+            Semantic Drift Analysis & Rationale
           </span>
-          <p style={{ fontSize: '0.875rem', color: 'var(--text-main)', marginTop: '4px', margin: 0 }}>
+          <p style={{ fontSize: '0.875rem', color: 'var(--text-main)', marginTop: '4px', margin: 0, lineHeight: 1.6 }}>
             {suggestion.reason || 'No reasoning provided.'}
           </p>
         </div>
       </div>
 
+      {/* Side by Side Diff Viewer */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
         <div style={{
           background: 'rgba(239, 68, 68, 0.05)',
@@ -149,6 +256,7 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
         </div>
       </div>
 
+      {/* Actions */}
       {status === 'PENDING' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', borderTop: '1px solid var(--border-glass)', paddingTop: '16px' }}>
           <button

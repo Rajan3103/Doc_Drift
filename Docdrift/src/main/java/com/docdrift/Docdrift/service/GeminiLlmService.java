@@ -22,14 +22,30 @@ public class GeminiLlmService {
         this.geminiApiKey = geminiApiKey;
     }
 
-    public Mono<String> analyzeDrift(String diff, String docContent) {
-        String prompt = "You are a Documentation Drift Detector. Review the following code diff and the documentation file content. "
-                + "If the diff makes the documentation outdated, suggest a fix.\n\n"
-                + "Code Diff:\n" + diff + "\n\n"
-                + "Documentation:\n" + docContent + "\n\n"
-                + "Respond ONLY with a JSON array in the following format (do not use markdown formatting like ```json):\n"
-                + "[{ \"oldText\": \"...\", \"suggestedText\": \"...\", \"reason\": \"...\" }]\n"
-                + "If no drift is found, return an empty array [].";
+    public Mono<String> analyzeDrift(String filePath, String diff, String docContent) {
+        String prompt = "You are a Semantic Documentation Drift Detection Engine for software repositories.\n"
+                + "Analyze the provided Git Code Diff against the target documentation file (" + filePath + ").\n\n"
+                + "### Objectives:\n"
+                + "1. Identify code symbols (REST endpoints, function signatures, CLI flags, configuration keys, database schemas, behavior changes) modified in the diff.\n"
+                + "2. Cross-reference these symbols with the documentation content to detect semantic drift (outdated commands, invalid API signatures, removed config properties, broken sample code, or behavioral mismatches).\n"
+                + "3. For each detected drift, generate a precise patch suggestion with semantic classification.\n\n"
+                + "### Code Diff:\n" + diff + "\n\n"
+                + "### Documentation File (" + filePath + "):\n" + docContent + "\n\n"
+                + "### Response Rules:\n"
+                + "- Respond ONLY with a valid JSON array matching this exact schema (no markdown explanations outside the JSON):\n"
+                + "[\n"
+                + "  {\n"
+                + "    \"filePath\": \"" + filePath + "\",\n"
+                + "    \"driftType\": \"API_SIGNATURE_MISMATCH\" | \"CONFIG_PROPERTY_CHANGED\" | \"CLI_USAGE_CHANGED\" | \"BEHAVIORAL_LOGIC_DRIFT\" | \"SAMPLE_CODE_BROKEN\",\n"
+                + "    \"severity\": \"CRITICAL\" | \"HIGH\" | \"MEDIUM\" | \"LOW\",\n"
+                + "    \"confidenceScore\": 0.95,\n"
+                + "    \"impactedSymbol\": \"<e.g. POST /api/v2/users or spring.datasource.url>\",\n"
+                + "    \"oldText\": \"<exact text in documentation that is outdated>\",\n"
+                + "    \"suggestedText\": \"<exact updated text to replace oldText>\",\n"
+                + "    \"reason\": \"<detailed explanation of what changed in the code and why this doc update is necessary>\"\n"
+                + "  }\n"
+                + "]\n"
+                + "- If no semantic drift is detected, return an empty array: []";
 
         GeminiRequest request = GeminiRequest.builder()
                 .contents(List.of(
@@ -47,14 +63,23 @@ public class GeminiLlmService {
                 .map(response -> {
                     if (response.getCandidates() != null && !response.getCandidates().isEmpty()) {
                         String text = response.getCandidates().get(0).getContent().getParts().get(0).getText();
-                        // Strip markdown blocks if Gemini added them
-                        if(text.startsWith("```json")) {
-                            text = text.replace("```json", "").replace("```", "").trim();
+                        if (text != null) {
+                            text = text.trim();
+                            if (text.startsWith("```json")) {
+                                text = text.substring(7);
+                            } else if (text.startsWith("```")) {
+                                text = text.substring(3);
+                            }
+                            if (text.endsWith("```")) {
+                                text = text.substring(0, text.length() - 3);
+                            }
+                            return text.trim();
                         }
-                        return text;
                     }
                     return "[]";
                 })
-                .onErrorResume(e -> Mono.just("[]"));
+                .onErrorResume(e -> {
+                    System.err.println("Gemini API Error: " + e.getMessage());
+                    return Mono.just("[]");
+                });
     }
-}

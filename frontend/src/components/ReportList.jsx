@@ -51,9 +51,37 @@ export default function ReportList({ reports, onStatusChange }) {
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-dim)', fontSize: '0.8rem' }}>
-              <Clock size={14} />
-              <span>{new Date(report.analyzedAt).toLocaleString()}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              {/* Semantic summary pills */}
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {report.suggestions?.some(s => (s.severity || '').toUpperCase() === 'CRITICAL') && (
+                  <span style={{
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    color: '#ef4444',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '0.72rem',
+                    fontWeight: 700
+                  }}>
+                    {report.suggestions.filter(s => (s.severity || '').toUpperCase() === 'CRITICAL').length} Critical
+                  </span>
+                )}
+                <span style={{
+                  background: 'rgba(99, 102, 241, 0.1)',
+                  color: 'var(--accent-primary)',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  fontSize: '0.72rem',
+                  fontWeight: 600
+                }}>
+                  {report.suggestions?.length || 0} Drifts
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-dim)', fontSize: '0.8rem' }}>
+                <Clock size={14} />
+                <span>{new Date(report.analyzedAt).toLocaleString()}</span>
+              </div>
             </div>
           </div>
 

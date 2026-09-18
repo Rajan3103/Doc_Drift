@@ -36,6 +36,14 @@ public class DiffAnalyzerService {
         this.objectMapper = objectMapper;
     }
 
+    private static final List<String> DOC_CANDIDATES = List.of(
+            "README.md",
+            "CONTRIBUTING.md",
+            "ARCHITECTURE.md",
+            "docs/API.md",
+            "docs/README.md"
+    );
+
     public void processWebhookEvent(WebhookPayload payload) {
         if (payload.getCommits() == null || payload.getCommits().isEmpty()) {
             return;
@@ -56,42 +64,60 @@ public class DiffAnalyzerService {
 
             gitHubService.getCommitDiff(repoName, commit.getId())
                     .flatMap(diff -> {
-                        if (diff == null || diff.isEmpty()) {
+                        if (diff == null || diff.isBlank()) {
                             return Mono.empty();
                         }
-                        // For MVP, just pull README.md to check if the code changes break it
-                        return gitHubService.getFileContent(repoName, "README.md", payload.getRef())
-                                .flatMap(docContent -> geminiLlmService.analyzeDrift(diff, docContent));
+                        // Perform semantic analysis across candidate documentation files
+                        return reactor.core.publisher.Flux.fromIterable(DOC_CANDIDATES)
+                                .flatMap(docPath -> gitHubService.getFileContent(repoName, docPath, payload.getRef())
+                                        .filter(content -> content != null && !content.isBlank())
+                                        .flatMap(docContent -> geminiLlmService.analyzeDrift(docPath, diff, docContent)
+                                                .map(json -> new DocAnalysisResult(docPath, json)))
+                                )
+                                .collectList();
                     })
-                    .subscribe(llmResponse -> {
+                    .subscribe(results -> {
                         try {
-                            List<LlmSuggestionDto> suggestionsDto = objectMapper.readValue(llmResponse, new TypeReference<List<LlmSuggestionDto>>() {});
-                            
-                            if (!suggestionsDto.isEmpty()) {
-                                DriftReport report = new DriftReport();
-                                report.setCommitSha(commit.getId());
-                                report.setRepositoryName(repoName);
-                                
-                                List<DriftSuggestion> suggestions = suggestionsDto.stream().map(dto -> {
-                                    DriftSuggestion s = new DriftSuggestion();
-                                    s.setFilePath("README.md");
-                                    s.setOldText(dto.getOldText());
-                                    s.setSuggestedText(dto.getSuggestedText());
-                                    s.setReason(dto.getReason());
-                                    s.setReport(report);
-                                    return s;
-                                }).collect(Collectors.toList());
-                                
-                                report.setSuggestions(suggestions);
+                            DriftReport report = new DriftReport();
+                            report.setCommitSha(commit.getId());
+                            report.setRepositoryName(repoName);
+
+                            List<DriftSuggestion> allSuggestions = new java.util.ArrayList<>();
+
+                            for (DocAnalysisResult res : results) {
+                                if (res.json != null && !res.json.isBlank() && !res.json.equals("[]")) {
+                                    List<LlmSuggestionDto> dtos = objectMapper.readValue(
+                                            res.json,
+                                            new TypeReference<List<LlmSuggestionDto>>() {}
+                                    );
+
+                                    for (LlmSuggestionDto dto : dtos) {
+                                        DriftSuggestion s = new DriftSuggestion();
+                                        s.setFilePath(dto.getFilePath() != null && !dto.getFilePath().isBlank() ? dto.getFilePath() : res.docPath);
+                                        s.setDriftType(dto.getDriftType() != null ? dto.getDriftType() : "BEHAVIORAL_LOGIC_DRIFT");
+                                        s.setSeverity(dto.getSeverity() != null ? dto.getSeverity() : "MEDIUM");
+                                        s.setConfidenceScore(dto.getConfidenceScore() != null ? dto.getConfidenceScore() : 0.90);
+                                        s.setImpactedSymbol(dto.getImpactedSymbol() != null ? dto.getImpactedSymbol() : "General Codebase");
+                                        s.setOldText(dto.getOldText());
+                                        s.setSuggestedText(dto.getSuggestedText());
+                                        s.setReason(dto.getReason());
+                                        s.setReport(report);
+                                        allSuggestions.add(s);
+                                    }
+                                }
+                            }
+
+                            if (!allSuggestions.isEmpty()) {
+                                report.setSuggestions(allSuggestions);
                                 driftReportRepository.save(report);
                             }
-                            
+
                             WebhookEvent ev = webhookEventRepository.findById(eventId).orElse(null);
                             if (ev != null) {
                                 ev.setStatus("PROCESSED");
                                 webhookEventRepository.save(ev);
                             }
-                            
+
                         } catch (Exception e) {
                             WebhookEvent ev = webhookEventRepository.findById(eventId).orElse(null);
                             if (ev != null) {
@@ -108,6 +134,16 @@ public class DiffAnalyzerService {
                         }
                         System.err.println("Failed LLM Pipeline: " + error.getMessage());
                     });
+        }
+    }
+
+    private static class DocAnalysisResult {
+        final String docPath;
+        final String json;
+
+        DocAnalysisResult(String docPath, String json) {
+            this.docPath = docPath;
+            this.json = json;
         }
     }
 }

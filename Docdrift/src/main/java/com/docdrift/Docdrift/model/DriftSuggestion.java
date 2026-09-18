@@ -13,6 +13,14 @@ public class DriftSuggestion {
     
     private String filePath;
     
+    private String driftType; // API_SIGNATURE_MISMATCH, CONFIG_PROPERTY_CHANGED, CLI_USAGE_CHANGED, BEHAVIORAL_LOGIC_DRIFT, SAMPLE_CODE_BROKEN
+    
+    private String severity; // CRITICAL, HIGH, MEDIUM, LOW
+    
+    private Double confidenceScore; // 0.0 - 1.0
+    
+    private String impactedSymbol; // e.g. endpoint route, function name, config key
+    
     @Column(columnDefinition = "TEXT")
     private String oldText;
     

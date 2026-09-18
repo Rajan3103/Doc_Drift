@@ -6,10 +6,12 @@
 
 ## 🚀 Features
 
-- 🔍 **Automated Drift Detection**: Continuously monitors code changes via GitHub webhooks or REST triggers to spot outdated, inaccurate, or incomplete documentation.
+- 🧠 **Semantic Drift Detection**: Performs AST/symbol-aware reasoning to detect breaking API signatures, removed config keys, outdated CLI parameters, and broken sample code.
+- ⚡ **Classification & Severity Scoring**: Categorizes drift events into distinct types (`API_SIGNATURE_MISMATCH`, `CONFIG_PROPERTY_CHANGED`, `CLI_USAGE_CHANGED`, `BEHAVIORAL_LOGIC_DRIFT`, `SAMPLE_CODE_BROKEN`) with confidence metrics (0–100%) and severity levels (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`).
+- 📁 **Multi-Document Scanning**: Proactively checks multiple documentation targets (`README.md`, `CONTRIBUTING.md`, `ARCHITECTURE.md`, `/docs/`) against commit diffs.
 - 💡 **Actionable Patch Generation**: Uses Google's Gemini LLM to generate precise, structured text replacements (`oldText` → `suggestedText`) along with AI reasoning.
 - 🛡️ **Human-in-the-Loop Oversight**: No documentation is mutated automatically. Suggestions enter a review queue requiring explicit approval.
-- 🎨 **Modern Review Dashboard**: Premium glassmorphic React dashboard for tech leads and reviewers to inspect side-by-side diffs and approve/reject suggestions with one click.
+- 🎨 **Modern Review Dashboard**: Premium glassmorphic React dashboard with severity badges, impacted symbol tags, side-by-side diffs, and one-click approve/reject actions.
 - 🗄️ **Auditable Persistence**: Tracks all drift reports, suggested fixes, and reviewer actions in PostgreSQL for full historical auditability.
 
 ---

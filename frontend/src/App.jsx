@@ -48,6 +48,22 @@ export default function App() {
     if (!needsApiKey) loadData();
   }, [needsApiKey]);
 
+  // Scans run in the background on the server; refresh every few seconds until they finish
+  const anyScanning = repos.some((r) => r.status === 'SCANNING');
+  useEffect(() => {
+    if (!anyScanning || needsApiKey) return undefined;
+    const timer = setInterval(async () => {
+      try {
+        const [reportsData, reposData] = await Promise.all([fetchReports(), fetchRepos()]);
+        setReports(reportsData);
+        setRepos(reposData);
+      } catch {
+        // Keep the current data; the next tick or a manual refresh will retry
+      }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [anyScanning, needsApiKey]);
+
   const handleSaveApiKey = (e) => {
     e.preventDefault();
     if (!apiKeyInput.trim()) return;
@@ -88,7 +104,6 @@ export default function App() {
 
   const handleRepoUpdated = (updatedRepo) => {
     setRepos((prev) => prev.map((r) => (r.id === updatedRepo.id ? updatedRepo : r)));
-    fetchReports().then(setReports).catch(() => {});
   };
 
   const handleRepoDeleted = (deletedId) => {

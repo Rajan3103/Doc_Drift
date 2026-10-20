@@ -1,14 +1,15 @@
 package com.docdrift.Docdrift.controller;
 
-import com.docdrift.Docdrift.dto.WebhookPayload;
 import com.docdrift.Docdrift.model.RepositoryConfig;
 import com.docdrift.Docdrift.repository.RepositoryConfigRepository;
 import com.docdrift.Docdrift.service.DiffAnalyzerService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/repos")
@@ -49,29 +50,16 @@ public class RepositoryController {
     }
 
     @PostMapping("/{id}/scan")
-    public ResponseEntity<RepositoryConfig> scanRepository(@PathVariable Long id) {
-        return repository.findById(id).map(config -> {
-            config.setStatus("SCANNING");
-            config.setLastScannedAt(LocalDateTime.now());
-            RepositoryConfig updated = repository.save(config);
-
-            // Construct manual scan trigger payload
-            WebhookPayload payload = new WebhookPayload();
-            payload.setRef("refs/heads/main");
-            
-            WebhookPayload.RepositoryPayload repoPayload = new WebhookPayload.RepositoryPayload();
-            repoPayload.setFull_name(config.getName());
-            payload.setRepository(repoPayload);
-
-            WebhookPayload.CommitPayload commit = new WebhookPayload.CommitPayload();
-            commit.setId("HEAD");
-            commit.setMessage("Manual Drift Scan Request");
-            payload.setCommits(List.of(commit));
-
-            diffAnalyzerService.processWebhookEvent(payload);
-
-            config.setStatus("HEALTHY");
-            return ResponseEntity.ok(repository.save(config));
-        }).orElse(ResponseEntity.notFound().build());
+    public ResponseEntity<?> scanRepository(@PathVariable Long id) {
+        RepositoryConfig config = repository.findById(id).orElse(null);
+        if (config == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if ("SCANNING".equals(config.getStatus())) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "A scan is already running."));
+        }
+        // The scan runs in the background; the dashboard polls the repository status until it finishes
+        diffAnalyzerService.scanLatestCommit(config);
+        return ResponseEntity.accepted().body(repository.findById(id).orElse(config));
     }
 }

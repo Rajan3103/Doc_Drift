@@ -6,6 +6,8 @@ import java.util.List;
 @Data
 public class WebhookPayload {
     private String ref;
+    private String before; // commit SHA before the push (all zeros for a new branch)
+    private String after;  // commit SHA after the push (all zeros when a branch is deleted)
     private List<CommitPayload> commits;
     private RepositoryPayload repository;
 

@@ -105,6 +105,16 @@ Docdrift/
 
    Pushes from repositories that are not tracked in DocDrift are ignored.
 
+### How a scan works
+
+1. **One diff per push** – a push is analysed as a single combined diff (`before...after`), not one analysis per commit. A manual scan analyses the latest commit on the default branch.
+2. **Diff cleanup** – lockfiles, generated output (`dist/`, `build/`, `target/`, …) and binaries are removed, and the diff is capped in size. Pushes that only change docs are skipped.
+3. **Doc discovery** – DocDrift lists the repository's files and picks Markdown docs and OpenAPI/Swagger specs (not changelogs or licences). API specs and the root README are always checked; other docs only if they mention something the diff removed or changed.
+4. **Analysis** – Gemini returns structured JSON. Temporary GitHub/Gemini failures (rate limits, 5xx, network) are retried.
+5. **Status** – the repository shows `SCANNING` while this runs, then `DRIFTED` (suggestions awaiting review), `HEALTHY`, or `ERROR` with the reason. The dashboard refreshes automatically while a scan runs.
+
+Repeated webhook deliveries (same `X-GitHub-Delivery`) are ignored, and a manual scan of an already-analysed commit does not create a duplicate report. Limits are adjustable under "Drift Analysis Limits" in `application.properties`.
+
 ---
 
 ### 2. Running the Backend (Spring Boot)
@@ -152,6 +162,7 @@ SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_
 curl -X POST http://localhost:8080/api/webhooks/github \
   -H "Content-Type: application/json" \
   -H "X-GitHub-Event: push" \
+  -H "X-GitHub-Delivery: test-delivery-1" \
   -H "X-Hub-Signature-256: $SIG" \
   -d "$BODY"
 ```

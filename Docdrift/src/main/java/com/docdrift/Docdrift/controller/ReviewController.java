@@ -4,6 +4,8 @@ import com.docdrift.Docdrift.model.DriftReport;
 import com.docdrift.Docdrift.model.DriftSuggestion;
 import com.docdrift.Docdrift.repository.DriftReportRepository;
 import com.docdrift.Docdrift.repository.DriftSuggestionRepository;
+import com.docdrift.Docdrift.repository.RepositoryConfigRepository;
+import com.docdrift.Docdrift.service.DiffAnalyzerService;
 import com.docdrift.Docdrift.service.GitHubService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -22,15 +24,21 @@ public class ReviewController {
     private final DriftReportRepository reportRepository;
     private final DriftSuggestionRepository suggestionRepository;
     private final GitHubService gitHubService;
+    private final DiffAnalyzerService diffAnalyzerService;
+    private final RepositoryConfigRepository repositoryConfigRepository;
 
     private static final Duration GITHUB_TIMEOUT = Duration.ofSeconds(30);
 
     public ReviewController(DriftReportRepository reportRepository,
                             DriftSuggestionRepository suggestionRepository,
-                            GitHubService gitHubService) {
+                            GitHubService gitHubService,
+                            DiffAnalyzerService diffAnalyzerService,
+                            RepositoryConfigRepository repositoryConfigRepository) {
         this.reportRepository = reportRepository;
         this.suggestionRepository = suggestionRepository;
         this.gitHubService = gitHubService;
+        this.diffAnalyzerService = diffAnalyzerService;
+        this.repositoryConfigRepository = repositoryConfigRepository;
     }
 
     @GetMapping("/reports")
@@ -77,7 +85,19 @@ public class ReviewController {
 
         // Only mark as approved once the pull request actually exists
         suggestion.setStatus("APPROVED");
-        return ResponseEntity.ok(suggestionRepository.save(suggestion));
+        DriftSuggestion saved = suggestionRepository.save(suggestion);
+        refreshRepositoryStatus(report.getRepositoryName());
+        return ResponseEntity.ok(saved);
+    }
+
+    /** A repository stops being DRIFTED once all of its suggestions have been reviewed. */
+    private void refreshRepositoryStatus(String repositoryName) {
+        repositoryConfigRepository.findFirstByNameIgnoreCase(repositoryName).ifPresent(config -> {
+            if (!"SCANNING".equals(config.getStatus()) && !"ERROR".equals(config.getStatus())) {
+                config.setStatus(diffAnalyzerService.statusFromPendingSuggestions(repositoryName));
+                repositoryConfigRepository.save(config);
+            }
+        });
     }
 
     private static ResponseEntity<Map<String, String>> error(HttpStatus status, String message) {
@@ -89,6 +109,7 @@ public class ReviewController {
         return suggestionRepository.findById(id).map(suggestion -> {
             suggestion.setStatus("REJECTED");
             DriftSuggestion saved = suggestionRepository.save(suggestion);
+            refreshRepositoryStatus(suggestion.getReport().getRepositoryName());
             return ResponseEntity.ok(saved);
         }).orElse(ResponseEntity.notFound().build());
     }

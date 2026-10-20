@@ -4,11 +4,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriBuilder;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -22,10 +24,13 @@ public class GitHubService {
             new ParameterizedTypeReference<>() {};
 
     private final WebClient webClient;
+    private final Duration retryBackoff;
 
     public GitHubService(WebClient.Builder webClientBuilder,
                          @Value("${github.api.url}") String githubApiUrl,
-                         @Value("${github.api.token}") String githubToken) {
+                         @Value("${github.api.token}") String githubToken,
+                         @Value("${docdrift.http.retry-backoff:2s}") Duration retryBackoff) {
+        this.retryBackoff = retryBackoff;
         // clone() so the GitHub token is not added to the shared builder used for other APIs
         this.webClient = webClientBuilder.clone()
                 .baseUrl(githubApiUrl)
@@ -35,21 +40,57 @@ public class GitHubService {
     }
 
     public Mono<String> getCommitDiff(String repositoryName, String commitSha) {
+        return getDiff(repoUri(repositoryName, List.of("commits", commitSha), null));
+    }
+
+    /** Combined diff of everything between two commits, e.g. all commits in one push. */
+    public Mono<String> getCompareDiff(String repositoryName, String baseSha, String headSha) {
+        return getDiff(repoUri(repositoryName, List.of("compare", baseSha + "..." + headSha), null));
+    }
+
+    private Mono<String> getDiff(Function<UriBuilder, URI> uri) {
         return this.webClient.get()
-                .uri(repoUri(repositoryName, List.of("commits", commitSha), null))
+                .uri(uri)
                 .header("Accept", "application/vnd.github.v3.diff")
                 .retrieve()
                 .bodyToMono(String.class)
-                .onErrorResume(e -> Mono.just(""));
+                .defaultIfEmpty("")
+                .retryWhen(HttpRetry.transientErrors(retryBackoff));
     }
 
+    /** Returns the file's text, or an empty string if it does not exist at that ref. */
     public Mono<String> getFileContent(String repositoryName, String filePath, String ref) {
         return this.webClient.get()
                 .uri(contentsUri(repositoryName, filePath, ref))
                 .header("Accept", "application/vnd.github.v3.raw")
                 .retrieve()
                 .bodyToMono(String.class)
-                .onErrorResume(e -> Mono.just(""));
+                .defaultIfEmpty("")
+                .retryWhen(HttpRetry.transientErrors(retryBackoff))
+                .onErrorResume(WebClientResponseException.NotFound.class, e -> Mono.just(""));
+    }
+
+    /** SHA of the latest commit on the repository's default branch. */
+    public Mono<String> getDefaultBranchHeadSha(String repositoryName) {
+        return getJson(repoUri(repositoryName, List.of(), null))
+                .map(repo -> (String) repo.get("default_branch"))
+                .flatMap(branch -> getJson(repoUri(repositoryName, List.of("commits", branch), null)))
+                .map(commit -> (String) commit.get("sha"));
+    }
+
+    /** Paths of all files in the repository at the given commit. */
+    public Mono<List<String>> listFiles(String repositoryName, String sha) {
+        return webClient.get()
+                .uri(builder -> repoUri(repositoryName, List.of("git", "trees", sha), null).apply(
+                        builder.queryParam("recursive", "1")))
+                .retrieve()
+                .bodyToMono(JSON_MAP)
+                .retryWhen(HttpRetry.transientErrors(retryBackoff))
+                .map(tree -> ((List<?>) tree.getOrDefault("tree", List.of())).stream()
+                        .map(entry -> (Map<?, ?>) entry)
+                        .filter(entry -> "blob".equals(entry.get("type")))
+                        .map(entry -> (String) entry.get("path"))
+                        .toList());
     }
 
     /**
@@ -121,8 +162,10 @@ public class GitHubService {
         };
     }
 
+    // Only reads are retried; repeating a write could create duplicate branches or pull requests
     private Mono<Map<String, Object>> getJson(Function<UriBuilder, URI> uri) {
-        return webClient.get().uri(uri).retrieve().bodyToMono(JSON_MAP);
+        return webClient.get().uri(uri).retrieve().bodyToMono(JSON_MAP)
+                .retryWhen(HttpRetry.transientErrors(retryBackoff));
     }
 
     private Mono<Map<String, Object>> postJson(Function<UriBuilder, URI> uri, Object requestBody) {

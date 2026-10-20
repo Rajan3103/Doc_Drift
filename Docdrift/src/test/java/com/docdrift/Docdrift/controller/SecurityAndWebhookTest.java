@@ -72,14 +72,14 @@ class SecurityAndWebhookTest {
                         .header("X-GitHub-Event", "push")
                         .header("X-Hub-Signature-256", "sha256=" + "0".repeat(64)).content(body))
                 .andExpect(status().isUnauthorized());
-        verify(diffAnalyzerService, never()).processWebhookEvent(any());
+        verify(diffAnalyzerService, never()).processWebhookEvent(any(), any());
     }
 
     @Test
     void webhookIgnoresUntrackedRepository() throws Exception {
         String body = PUSH_BODY.formatted("stranger/untracked");
         mockMvc.perform(signedPush(body)).andExpect(status().isAccepted());
-        verify(diffAnalyzerService, never()).processWebhookEvent(any());
+        verify(diffAnalyzerService, never()).processWebhookEvent(any(), any());
     }
 
     @Test
@@ -90,7 +90,7 @@ class SecurityAndWebhookTest {
         repositoryConfigRepository.save(config);
 
         mockMvc.perform(signedPush(PUSH_BODY.formatted("owner/tracked"))).andExpect(status().isOk());
-        verify(diffAnalyzerService).processWebhookEvent(any());
+        verify(diffAnalyzerService).processWebhookEvent(any(), any());
     }
 
     private static org.springframework.test.web.servlet.RequestBuilder signedPush(String body) throws Exception {

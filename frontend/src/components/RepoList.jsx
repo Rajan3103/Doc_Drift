@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ExternalLink, Play, Trash2, ShieldCheck, ShieldAlert, RefreshCw, Clock, GitFork } from 'lucide-react';
+import { ExternalLink, Play, Trash2, ShieldCheck, ShieldAlert, RefreshCw, Clock, GitFork, XCircle } from 'lucide-react';
 import { deleteRepo, scanRepo } from '../api';
 
 export default function RepoList({ repos, onRepoUpdated, onRepoDeleted }) {
@@ -11,7 +11,7 @@ export default function RepoList({ repos, onRepoUpdated, onRepoDeleted }) {
       const updated = await scanRepo(id);
       if (onRepoUpdated) onRepoUpdated(updated);
     } catch (e) {
-      alert('Failed to trigger manual scan');
+      alert(e.message || 'Failed to trigger manual scan');
     } finally {
       setLoadingId(null);
     }
@@ -61,6 +61,23 @@ export default function RepoList({ repos, onRepoUpdated, onRepoDeleted }) {
           gap: '4px'
         }}>
           <RefreshCw size={14} className="animate-spin" /> Scanning...
+        </span>
+      );
+    }
+    if (status === 'ERROR') {
+      return (
+        <span style={{
+          background: 'var(--danger-bg)',
+          color: 'var(--danger)',
+          padding: '4px 12px',
+          borderRadius: '12px',
+          fontSize: '0.75rem',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px'
+        }}>
+          <XCircle size={14} /> Scan Failed
         </span>
       );
     }
@@ -155,6 +172,22 @@ export default function RepoList({ repos, onRepoUpdated, onRepoDeleted }) {
                 <span>Added On: {repo.createdAt ? new Date(repo.createdAt).toLocaleDateString() : 'N/A'}</span>
               </div>
             </div>
+
+            {repo.lastError && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                fontSize: '0.78rem',
+                color: '#fca5a5',
+                marginBottom: '20px',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word'
+              }}>
+                <strong>Last scan problem: </strong>{repo.lastError}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-glass)', paddingTop: '16px' }}>
@@ -172,10 +205,10 @@ export default function RepoList({ repos, onRepoUpdated, onRepoDeleted }) {
             <button
               className="btn btn-primary"
               onClick={() => handleScan(repo.id)}
-              disabled={loadingId === repo.id}
+              disabled={loadingId === repo.id || repo.status === 'SCANNING'}
             >
               <Play size={15} />
-              <span>{loadingId === repo.id ? 'Scanning...' : 'Manual Drift Scan'}</span>
+              <span>{loadingId === repo.id || repo.status === 'SCANNING' ? 'Scanning...' : 'Manual Drift Scan'}</span>
             </button>
           </div>
         </div>

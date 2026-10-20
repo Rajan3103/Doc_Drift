@@ -34,7 +34,8 @@ public class WebhookController {
     public ResponseEntity<String> handleGitHubWebhook(
             @RequestBody byte[] body,
             @RequestHeader(value = "X-Hub-Signature-256", required = false) String signature,
-            @RequestHeader(value = "X-GitHub-Event", required = false) String eventType) {
+            @RequestHeader(value = "X-GitHub-Event", required = false) String eventType,
+            @RequestHeader(value = "X-GitHub-Delivery", required = false) String deliveryId) {
 
         if (!signatureVerifier.isConfigured()) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
@@ -66,7 +67,9 @@ public class WebhookController {
             return ResponseEntity.accepted().body("Repository is not tracked: " + repoName);
         }
 
-        diffAnalyzerService.processWebhookEvent(payload);
+        if (!diffAnalyzerService.processWebhookEvent(payload, deliveryId)) {
+            return ResponseEntity.ok("Duplicate delivery ignored.");
+        }
         return ResponseEntity.ok("Webhook received and processing started.");
     }
 }

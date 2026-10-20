@@ -1,19 +1,21 @@
 import React, { useState } from 'react';
-import { Check, X, FileText, AlertCircle, Sparkles, AlertTriangle, ShieldAlert, Cpu, Percent } from 'lucide-react';
+import { Check, X, FileText, AlertCircle, Sparkles, AlertTriangle, ShieldAlert, Cpu, Percent, ExternalLink } from 'lucide-react';
 import { approveSuggestion, rejectSuggestion } from '../api';
 
 export default function SuggestionCard({ suggestion, onStatusChange }) {
   const [status, setStatus] = useState(suggestion.status);
+  const [prUrl, setPrUrl] = useState(suggestion.prUrl);
   const [loading, setLoading] = useState(false);
 
   const handleApprove = async () => {
     setLoading(true);
     try {
-      await approveSuggestion(suggestion.id);
+      const updated = await approveSuggestion(suggestion.id);
       setStatus('APPROVED');
+      setPrUrl(updated.prUrl);
       if (onStatusChange) onStatusChange(suggestion.id, 'APPROVED');
     } catch (e) {
-      alert('Failed to approve suggestion');
+      alert(e.message || 'Failed to approve suggestion');
     } finally {
       setLoading(false);
     }
@@ -334,6 +336,14 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
           </pre>
         </div>
       </div>
+
+      {prUrl && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border-glass)', paddingTop: '16px' }}>
+          <a className="btn btn-outline" href={prUrl} target="_blank" rel="noopener noreferrer">
+            <ExternalLink size={16} /> View Pull Request
+          </a>
+        </div>
+      )}
 
       {/* Actions */}
       {status === 'PENDING' && (

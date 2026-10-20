@@ -4,4 +4,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface RepositoryConfigRepository extends JpaRepository<RepositoryConfig, Long> {
     RepositoryConfig findByUrl(String url);
+    boolean existsByNameIgnoreCase(String name);
 }

@@ -1,81 +1,87 @@
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
-export async function fetchReports() {
+// The API key is entered by the user in the dashboard and kept in this browser only,
+// so it is never baked into the public JavaScript bundle.
+const API_KEY_STORAGE = 'docdrift_api_key';
+
+export function getApiKey() {
     try {
-        const response = await fetch(`${BASE_URL}/reports`);
-        if (!response.ok) {
-            throw new Error('Failed to fetch reports');
-        }
-        return await response.json();
-    } catch (error) {
-        console.error("API Error:", error);
-        throw error;
+        return localStorage.getItem(API_KEY_STORAGE) || '';
+    } catch {
+        return '';
     }
+}
+
+export function setApiKey(key) {
+    try {
+        localStorage.setItem(API_KEY_STORAGE, key);
+    } catch {
+        // Storage unavailable (private mode); the key will need re-entering next visit
+    }
+}
+
+export function clearApiKey() {
+    try {
+        localStorage.removeItem(API_KEY_STORAGE);
+    } catch {
+        // ignore
+    }
+}
+
+export class ApiError extends Error {
+    constructor(message, status) {
+        super(message);
+        this.status = status;
+    }
+}
+
+async function request(path, fallbackMessage, options = {}) {
+    const response = await fetch(`${BASE_URL}${path}`, {
+        ...options,
+        headers: {
+            ...options.headers,
+            'X-API-Key': getApiKey()
+        }
+    });
+    if (!response.ok) {
+        // The backend returns {"error": "..."} for failures it can explain
+        const body = await response.json().catch(() => null);
+        throw new ApiError(body?.error || fallbackMessage, response.status);
+    }
+    return response.status === 204 ? null : await response.json();
+}
+
+export async function fetchReports() {
+    return request('/reports', 'Failed to fetch reports');
 }
 
 export async function approveSuggestion(id) {
-    const response = await fetch(`${BASE_URL}/suggestions/${id}/approve`, {
-        method: 'POST'
-    });
-    if (!response.ok) {
-        throw new Error('Failed to approve suggestion');
-    }
-    return await response.json();
+    return request(`/suggestions/${id}/approve`, 'Failed to approve suggestion', { method: 'POST' });
 }
 
 export async function rejectSuggestion(id) {
-    const response = await fetch(`${BASE_URL}/suggestions/${id}/reject`, {
-        method: 'POST'
-    });
-    if (!response.ok) {
-        throw new Error('Failed to reject suggestion');
-    }
-    return await response.json();
+    return request(`/suggestions/${id}/reject`, 'Failed to reject suggestion', { method: 'POST' });
 }
 
 export async function fetchRepos() {
-    try {
-        const response = await fetch(`${BASE_URL}/repos`);
-        if (!response.ok) {
-            throw new Error('Failed to fetch repositories');
-        }
-        return await response.json();
-    } catch (error) {
-        console.error("API Error:", error);
-        throw error;
-    }
+    return request('/repos', 'Failed to fetch repositories');
 }
 
 export async function registerRepo(url, name) {
-    const response = await fetch(`${BASE_URL}/repos`, {
+    return request('/repos', 'Failed to register repository', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({ url, name })
     });
-    if (!response.ok) {
-        throw new Error('Failed to register repository');
-    }
-    return await response.json();
 }
 
 export async function deleteRepo(id) {
-    const response = await fetch(`${BASE_URL}/repos/${id}`, {
-        method: 'DELETE'
-    });
-    if (!response.ok) {
-        throw new Error('Failed to untrack repository');
-    }
+    await request(`/repos/${id}`, 'Failed to untrack repository', { method: 'DELETE' });
     return true;
 }
 
 export async function scanRepo(id) {
-    const response = await fetch(`${BASE_URL}/repos/${id}/scan`, {
-        method: 'POST'
-    });
-    if (!response.ok) {
-        throw new Error('Failed to trigger scan');
-    }
-    return await response.json();
+    return request(`/repos/${id}/scan`, 'Failed to trigger scan', { method: 'POST' });
 }

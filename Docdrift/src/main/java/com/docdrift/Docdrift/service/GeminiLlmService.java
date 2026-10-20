@@ -13,13 +13,18 @@ import java.util.List;
 public class GeminiLlmService {
 
     private final WebClient webClient;
-    private final String geminiApiKey;
+    private final String geminiModel;
 
     public GeminiLlmService(WebClient.Builder webClientBuilder,
                             @Value("${gemini.api.url}") String geminiApiUrl,
+                            @Value("${gemini.model}") String geminiModel,
                             @Value("${gemini.api.key}") String geminiApiKey) {
-        this.webClient = webClientBuilder.baseUrl(geminiApiUrl).build();
-        this.geminiApiKey = geminiApiKey;
+        // The key travels in a header rather than the URL so it does not end up in access logs
+        this.webClient = webClientBuilder.clone()
+                .baseUrl(geminiApiUrl)
+                .defaultHeader("x-goog-api-key", geminiApiKey)
+                .build();
+        this.geminiModel = geminiModel;
     }
 
     public Mono<String> analyzeDrift(String filePath, String diff, String docContent) {
@@ -61,7 +66,7 @@ public class GeminiLlmService {
                 .build();
 
         return this.webClient.post()
-                .uri(uriBuilder -> uriBuilder.queryParam("key", geminiApiKey).build())
+                .uri("/models/{model}:generateContent", geminiModel)
                 .bodyValue(request)
                 .retrieve()
                 .bodyToMono(GeminiResponse.class)

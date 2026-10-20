@@ -39,6 +39,8 @@ public class DriftSuggestion {
     private String reason;
     
     private String status = "PENDING"; // PENDING, APPROVED, REJECTED
+
+    private String prUrl; // pull request opened when the suggestion was approved
     
     @ManyToOne
     @JoinColumn(name = "report_id")

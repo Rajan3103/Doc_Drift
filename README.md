@@ -32,7 +32,7 @@
 - **Styling**: Vanilla CSS (Custom dark-mode glassmorphic design system)
 
 ### AI & Integrations
-- **LLM Engine**: Google Gemini API (`gemini-1.5-flash`)
+- **LLM Engine**: Google Gemini API (`gemini-flash-latest` by default, configurable via `GEMINI_MODEL`)
 - **Version Control**: GitHub REST API & Webhook events
 
 ---
@@ -81,17 +81,29 @@ Docdrift/
    ```sql
    CREATE DATABASE docdrift;
    ```
-3. Update `Docdrift/src/main/resources/application.properties` with your PostgreSQL username and password:
-   ```properties
-   spring.datasource.url=jdbc:postgresql://localhost:5432/docdrift
-   spring.datasource.username=postgres
-   spring.datasource.password=YOUR_POSTGRES_PASSWORD
-   ```
-4. Set your API credentials in `application.properties` or environment variables:
-   ```properties
-   github.api.token=YOUR_GITHUB_PAT
-   gemini.api.key=YOUR_GEMINI_API_KEY
-   ```
+3. Set your configuration as **environment variables** (never put real secrets in `application.properties`):
+
+   | Variable | Required | What it is |
+   |---|---|---|
+   | `DB_URL` | no | JDBC URL, default `jdbc:postgresql://localhost:5432/docdrift` |
+   | `DB_USERNAME` | no | Database user, default `postgres` |
+   | `DB_PASSWORD` | yes | Database password |
+   | `GITHUB_PAT` | yes | GitHub token with **Contents: read & write** and **Pull requests: read & write** on tracked repos (needed to open fix PRs) |
+   | `GEMINI_API_KEY` | yes | Google Gemini API key |
+   | `GEMINI_MODEL` | no | Gemini model name, default `gemini-flash-latest` |
+   | `DOCDRIFT_API_KEY` | yes | Any long random string; the dashboard asks for it and sends it as the `X-API-Key` header |
+   | `GITHUB_WEBHOOK_SECRET` | yes | Random string; must match the secret set on the GitHub webhook |
+   | `CORS_ALLOWED_ORIGINS` | no | Comma-separated dashboard origins, default `http://localhost:5173` (add your Vercel URL in production) |
+
+   Generate random values with `openssl rand -hex 32`. The API and webhook reject all requests until `DOCDRIFT_API_KEY` and `GITHUB_WEBHOOK_SECRET` are set.
+
+4. On GitHub, add a webhook to each tracked repository (**Settings → Webhooks → Add webhook**):
+   - Payload URL: `https://<your-backend>/api/webhooks/github`
+   - Content type: `application/json`
+   - Secret: the same value as `GITHUB_WEBHOOK_SECRET`
+   - Events: **Just the push event**
+
+   Pushes from repositories that are not tracked in DocDrift are ignored.
 
 ---
 
@@ -123,31 +135,35 @@ The dashboard will be available at **`http://localhost:5173`**.
 ## 🧪 Testing the APIs via Terminal (`curl`)
 
 ### 1. Track a Repository
+All dashboard endpoints require the `X-API-Key` header.
+
 ```bash
 curl -X POST http://localhost:8080/api/repos \
+  -H "X-API-Key: $DOCDRIFT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"url":"https://github.com/Rajan3103/Doc_Drift", "name":"Rajan3103/Doc_Drift"}'
 ```
 
 ### 2. Simulate a GitHub Webhook Push Event
+Webhook requests must be signed with `GITHUB_WEBHOOK_SECRET`, exactly like GitHub does:
 ```bash
+BODY='{"ref":"refs/heads/main","repository":{"full_name":"Rajan3103/Doc_Drift"},"commits":[{"id":"sample-sha-12345","message":"Updated function signatures"}]}'
+SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_SECRET" | sed 's/^.* //')"
 curl -X POST http://localhost:8080/api/webhooks/github \
   -H "Content-Type: application/json" \
-  -d '{
-    "ref": "refs/heads/main",
-    "repository": {"full_name": "Rajan3103/Doc_Drift"},
-    "commits": [{"id": "sample-sha-12345", "message": "Updated function signatures"}]
-  }'
+  -H "X-GitHub-Event: push" \
+  -H "X-Hub-Signature-256: $SIG" \
+  -d "$BODY"
 ```
 
 ### 3. Fetch Drift Reports
 ```bash
-curl http://localhost:8080/api/reports
+curl -H "X-API-Key: $DOCDRIFT_API_KEY" http://localhost:8080/api/reports
 ```
 
 ### 4. Approve a Suggestion
 ```bash
-curl -X POST http://localhost:8080/api/suggestions/1/approve
+curl -X POST -H "X-API-Key: $DOCDRIFT_API_KEY" http://localhost:8080/api/suggestions/1/approve
 ```
 
 ---

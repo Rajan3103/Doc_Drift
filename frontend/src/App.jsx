@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Plus, Layers, GitFork, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Plus, Layers, GitFork, AlertTriangle, KeyRound } from 'lucide-react';
 import Header from './components/Header';
 import ReportList from './components/ReportList';
 import RepoList from './components/RepoList';
-import { fetchReports, fetchRepos, registerRepo } from './api';
+import { fetchReports, fetchRepos, registerRepo, getApiKey, setApiKey, clearApiKey } from './api';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('reports'); // 'reports' | 'repos'
@@ -11,6 +11,10 @@ export default function App() {
   const [repos, setRepos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // API key prompt state (shown when the backend answers 401)
+  const [needsApiKey, setNeedsApiKey] = useState(!getApiKey());
+  const [apiKeyInput, setApiKeyInput] = useState('');
   
   // Repo registration modal state
   const [showModal, setShowModal] = useState(false);
@@ -23,21 +27,34 @@ export default function App() {
     setError(null);
     try {
       const [reportsData, reposData] = await Promise.all([
-        fetchReports().catch(() => []),
-        fetchRepos().catch(() => [])
+        fetchReports(),
+        fetchRepos()
       ]);
       setReports(reportsData);
       setRepos(reposData);
     } catch (err) {
-      setError('Could not connect to the backend server. Is Spring Boot running on port 8080?');
+      if (err.status === 401) {
+        clearApiKey();
+        setNeedsApiKey(true);
+      } else {
+        setError('Could not connect to the backend server. Is Spring Boot running on port 8080?');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (!needsApiKey) loadData();
+  }, [needsApiKey]);
+
+  const handleSaveApiKey = (e) => {
+    e.preventDefault();
+    if (!apiKeyInput.trim()) return;
+    setApiKey(apiKeyInput.trim());
+    setApiKeyInput('');
+    setNeedsApiKey(false);
+  };
 
   const handleStatusChange = (suggestionId, newStatus) => {
     setReports((prevReports) =>
@@ -235,7 +252,36 @@ export default function App() {
           </div>
         )}
 
-        {loading && !error ? (
+        {needsApiKey ? (
+          <div className="glass-panel animate-fade-in" style={{ maxWidth: '480px', margin: '48px auto', padding: '24px' }}>
+            <h2 style={{ fontSize: '1.25rem', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <KeyRound size={20} color="var(--accent-primary)" /> Enter API Key
+            </h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '16px' }}>
+              The dashboard needs the DOCDRIFT_API_KEY configured on the backend. It is stored only in this browser.
+            </p>
+            <form onSubmit={handleSaveApiKey} style={{ display: 'flex', gap: '12px' }}>
+              <input
+                type="password"
+                placeholder="API key"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                required
+                style={{
+                  flex: 1,
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  background: 'rgba(0, 0, 0, 0.3)',
+                  border: '1px solid var(--border-glass)',
+                  color: 'white',
+                  fontFamily: 'var(--font-sans)',
+                  outline: 'none'
+                }}
+              />
+              <button type="submit" className="btn btn-primary">Connect</button>
+            </form>
+          </div>
+        ) : loading && !error ? (
           <div style={{ padding: '64px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
             <RefreshCw size={32} style={{ margin: '0 auto 16px', animation: 'spin 1s linear infinite' }} />
             <p>Loading dashboard data...</p>

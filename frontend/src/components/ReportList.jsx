@@ -2,7 +2,7 @@ import React from 'react';
 import { GitCommit, Clock, CheckCircle2 } from 'lucide-react';
 import SuggestionCard from './SuggestionCard';
 
-export default function ReportList({ reports, onStatusChange }) {
+export default function ReportList({ reports, onStatusChange, filtered = false }) {
   if (!reports || reports.length === 0) {
     return (
       <div className="glass-panel" style={{
@@ -11,9 +11,11 @@ export default function ReportList({ reports, onStatusChange }) {
         marginTop: '24px'
       }}>
         <CheckCircle2 size={48} color="var(--success)" style={{ margin: '0 auto 16px' }} />
-        <h3 style={{ fontSize: '1.25rem', marginBottom: '8px' }}>No Drift Detected</h3>
+        <h3 style={{ fontSize: '1.25rem', marginBottom: '8px' }}>{filtered ? 'No Matching Reports' : 'No Drift Detected'}</h3>
         <p style={{ color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto' }}>
-          All tracked repositories are synchronized. No documentation drift has been flagged by the AI engine.
+          {filtered
+            ? 'No drift reports match the selected filters.'
+            : 'All tracked repositories are synchronized. No documentation drift has been flagged by the AI engine.'}
         </p>
       </div>
     );

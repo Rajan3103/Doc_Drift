@@ -51,8 +51,24 @@ async function request(path, fallbackMessage, options = {}) {
     return response.status === 204 ? null : await response.json();
 }
 
-export async function fetchReports() {
-    return request('/reports', 'Failed to fetch reports');
+// Builds "?a=1&b=2" from an object, leaving out empty values
+function query(params) {
+    const search = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') search.set(key, value);
+    });
+    const text = search.toString();
+    return text ? `?${text}` : '';
+}
+
+// Returns a page: { content, page, size, totalElements, totalPages }
+export async function fetchReports({ page = 0, size = 20, repository, severity, status } = {}) {
+    return request(`/reports${query({ page, size, repository, severity, status })}`, 'Failed to fetch reports');
+}
+
+// Returns { pending, critical, breaking } counts of suggestions awaiting review
+export async function fetchSummary() {
+    return request('/reports/summary', 'Failed to fetch review summary');
 }
 
 export async function approveSuggestion(id) {
@@ -63,8 +79,9 @@ export async function rejectSuggestion(id) {
     return request(`/suggestions/${id}/reject`, 'Failed to reject suggestion', { method: 'POST' });
 }
 
-export async function fetchRepos() {
-    return request('/repos', 'Failed to fetch repositories');
+// Returns a page: { content, page, size, totalElements, totalPages }
+export async function fetchRepos({ page = 0, size = 20 } = {}) {
+    return request(`/repos${query({ page, size })}`, 'Failed to fetch repositories');
 }
 
 export async function registerRepo(url, name) {

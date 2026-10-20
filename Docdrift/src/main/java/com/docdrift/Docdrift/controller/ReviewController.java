@@ -1,12 +1,24 @@
 package com.docdrift.Docdrift.controller;
 
+import com.docdrift.Docdrift.dto.PageResponse;
+import com.docdrift.Docdrift.dto.ReportView;
+import com.docdrift.Docdrift.dto.ReviewSummary;
 import com.docdrift.Docdrift.model.DriftReport;
 import com.docdrift.Docdrift.model.DriftSuggestion;
+import com.docdrift.Docdrift.model.RepositoryStatus;
+import com.docdrift.Docdrift.model.Severity;
+import com.docdrift.Docdrift.model.SuggestionStatus;
 import com.docdrift.Docdrift.repository.DriftReportRepository;
 import com.docdrift.Docdrift.repository.DriftSuggestionRepository;
 import com.docdrift.Docdrift.repository.RepositoryConfigRepository;
 import com.docdrift.Docdrift.service.DiffAnalyzerService;
 import com.docdrift.Docdrift.service.GitHubService;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,7 +26,10 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -41,9 +56,47 @@ public class ReviewController {
         this.repositoryConfigRepository = repositoryConfigRepository;
     }
 
+    /** Newest reports first; severity/status filters keep reports with at least one matching suggestion. */
     @GetMapping("/reports")
-    public ResponseEntity<List<DriftReport>> getAllReports() {
-        return ResponseEntity.ok(reportRepository.findAll());
+    public PageResponse<ReportView> getReports(@RequestParam(defaultValue = "0") int page,
+                                               @RequestParam(defaultValue = "20") int size,
+                                               @RequestParam(required = false) String repository,
+                                               @RequestParam(required = false) Severity severity,
+                                               @RequestParam(required = false) SuggestionStatus status) {
+        Specification<DriftReport> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (repository != null && !repository.isBlank()) {
+                predicates.add(cb.equal(cb.lower(root.get("repositoryName")), repository.trim().toLowerCase(Locale.ROOT)));
+            }
+            if (severity != null || status != null) {
+                Subquery<Long> matching = query.subquery(Long.class);
+                Root<DriftSuggestion> suggestion = matching.from(DriftSuggestion.class);
+                List<Predicate> conditions = new ArrayList<>(List.of(cb.equal(suggestion.get("report"), root)));
+                if (severity != null) conditions.add(cb.equal(suggestion.get("severity"), severity));
+                if (status != null) conditions.add(cb.equal(suggestion.get("status"), status));
+                matching.select(suggestion.get("id")).where(conditions.toArray(Predicate[]::new));
+                predicates.add(cb.exists(matching));
+            }
+            return cb.and(predicates.toArray(Predicate[]::new));
+        };
+
+        PageRequest pageRequest = PageRequest.of(Math.max(page, 0), Math.clamp(size, 1, 100),
+                Sort.by(Sort.Direction.DESC, "analyzedAt").and(Sort.by(Sort.Direction.DESC, "id")));
+        return PageResponse.from(reportRepository.findAll(spec, pageRequest).map(report -> new ReportView(
+                report.getId(), report.getCommitSha(), report.getRepositoryName(), report.getAnalyzedAt(),
+                report.getSuggestions() == null ? List.of() : report.getSuggestions().stream()
+                        .filter(s -> severity == null || s.getSeverity() == severity)
+                        .filter(s -> status == null || s.getStatus() == status)
+                        .sorted(Comparator.comparing(DriftSuggestion::getId))
+                        .toList())));
+    }
+
+    @GetMapping("/reports/summary")
+    public ReviewSummary getSummary() {
+        return new ReviewSummary(
+                suggestionRepository.countByStatus(SuggestionStatus.PENDING),
+                suggestionRepository.countByStatusAndSeverity(SuggestionStatus.PENDING, Severity.CRITICAL),
+                suggestionRepository.countByStatusAndIsBreakingChangeTrue(SuggestionStatus.PENDING));
     }
 
     @PostMapping("/suggestions/{id}/approve")
@@ -52,7 +105,7 @@ public class ReviewController {
         if (suggestion == null) {
             return ResponseEntity.notFound().build();
         }
-        if (!"PENDING".equals(suggestion.getStatus())) {
+        if (suggestion.getStatus() != SuggestionStatus.PENDING) {
             return error(HttpStatus.CONFLICT, "Suggestion is already " + suggestion.getStatus() + ".");
         }
         if (suggestion.getOldText() == null || suggestion.getOldText().isEmpty() || suggestion.getSuggestedText() == null) {
@@ -84,7 +137,7 @@ public class ReviewController {
         }
 
         // Only mark as approved once the pull request actually exists
-        suggestion.setStatus("APPROVED");
+        suggestion.setStatus(SuggestionStatus.APPROVED);
         DriftSuggestion saved = suggestionRepository.save(suggestion);
         refreshRepositoryStatus(report.getRepositoryName());
         return ResponseEntity.ok(saved);
@@ -93,7 +146,7 @@ public class ReviewController {
     /** A repository stops being DRIFTED once all of its suggestions have been reviewed. */
     private void refreshRepositoryStatus(String repositoryName) {
         repositoryConfigRepository.findFirstByNameIgnoreCase(repositoryName).ifPresent(config -> {
-            if (!"SCANNING".equals(config.getStatus()) && !"ERROR".equals(config.getStatus())) {
+            if (config.getStatus() != RepositoryStatus.SCANNING && config.getStatus() != RepositoryStatus.ERROR) {
                 config.setStatus(diffAnalyzerService.statusFromPendingSuggestions(repositoryName));
                 repositoryConfigRepository.save(config);
             }
@@ -107,7 +160,7 @@ public class ReviewController {
     @PostMapping("/suggestions/{id}/reject")
     public ResponseEntity<DriftSuggestion> rejectSuggestion(@PathVariable Long id) {
         return suggestionRepository.findById(id).map(suggestion -> {
-            suggestion.setStatus("REJECTED");
+            suggestion.setStatus(SuggestionStatus.REJECTED);
             DriftSuggestion saved = suggestionRepository.save(suggestion);
             refreshRepositoryStatus(suggestion.getReport().getRepositoryName());
             return ResponseEntity.ok(saved);

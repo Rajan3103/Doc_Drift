@@ -3,12 +3,26 @@ import { RefreshCw, Plus, Layers, GitFork, AlertTriangle, KeyRound } from 'lucid
 import Header from './components/Header';
 import ReportList from './components/ReportList';
 import RepoList from './components/RepoList';
-import { fetchReports, fetchRepos, registerRepo, getApiKey, setApiKey, clearApiKey } from './api';
+import Pagination from './components/Pagination';
+import ReportFilters from './components/ReportFilters';
+import { fetchReports, fetchRepos, fetchSummary, registerRepo, getApiKey, setApiKey, clearApiKey } from './api';
+
+// Page sizes for the two lists; change these to show more or fewer items per page
+const REPORTS_PAGE_SIZE = 10;
+const REPOS_PAGE_SIZE = 12;
+const EMPTY_PAGE = { content: [], page: 0, totalPages: 0, totalElements: 0 };
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('reports'); // 'reports' | 'repos'
-  const [reports, setReports] = useState([]);
-  const [repos, setRepos] = useState([]);
+  const [reportsPage, setReportsPage] = useState(EMPTY_PAGE);
+  const [reposPage, setReposPage] = useState(EMPTY_PAGE);
+  const [repoNames, setRepoNames] = useState([]);
+  const [summary, setSummary] = useState({ pending: 0, critical: 0, breaking: 0 });
+  const [reportPageNumber, setReportPageNumber] = useState(0);
+  const [repoPageNumber, setRepoPageNumber] = useState(0);
+  const [filters, setFilters] = useState({ repository: '', severity: '', status: '' });
+  const reports = reportsPage.content;
+  const repos = reposPage.content;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -22,16 +36,25 @@ export default function App() {
   const [repoName, setRepoName] = useState('');
   const [registering, setRegistering] = useState(false);
 
+  // Fetches the current pages, the review counts and the repository names for the filter
+  const fetchAll = async () => {
+    const [reportsData, reposData, summaryData, allRepos] = await Promise.all([
+      fetchReports({ page: reportPageNumber, size: REPORTS_PAGE_SIZE, ...filters }),
+      fetchRepos({ page: repoPageNumber, size: REPOS_PAGE_SIZE }),
+      fetchSummary(),
+      fetchRepos({ page: 0, size: 100 })
+    ]);
+    setReportsPage(reportsData);
+    setReposPage(reposData);
+    setSummary(summaryData);
+    setRepoNames(allRepos.content.map((r) => r.name));
+  };
+
   const loadData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [reportsData, reposData] = await Promise.all([
-        fetchReports(),
-        fetchRepos()
-      ]);
-      setReports(reportsData);
-      setRepos(reposData);
+      await fetchAll();
     } catch (err) {
       if (err.status === 401) {
         clearApiKey();
@@ -46,7 +69,12 @@ export default function App() {
 
   useEffect(() => {
     if (!needsApiKey) loadData();
-  }, [needsApiKey]);
+  }, [needsApiKey, reportPageNumber, repoPageNumber, filters]);
+
+  const handleFiltersChange = (newFilters) => {
+    setFilters(newFilters);
+    setReportPageNumber(0);
+  };
 
   // Scans run in the background on the server; refresh every few seconds until they finish
   const anyScanning = repos.some((r) => r.status === 'SCANNING');
@@ -54,15 +82,13 @@ export default function App() {
     if (!anyScanning || needsApiKey) return undefined;
     const timer = setInterval(async () => {
       try {
-        const [reportsData, reposData] = await Promise.all([fetchReports(), fetchRepos()]);
-        setReports(reportsData);
-        setRepos(reposData);
+        await fetchAll();
       } catch {
         // Keep the current data; the next tick or a manual refresh will retry
       }
     }, 5000);
     return () => clearInterval(timer);
-  }, [anyScanning, needsApiKey]);
+  }, [anyScanning, needsApiKey, reportPageNumber, repoPageNumber, filters]);
 
   const handleSaveApiKey = (e) => {
     e.preventDefault();
@@ -73,14 +99,16 @@ export default function App() {
   };
 
   const handleStatusChange = (suggestionId, newStatus) => {
-    setReports((prevReports) =>
-      prevReports.map((report) => ({
+    setReportsPage((prev) => ({
+      ...prev,
+      content: prev.content.map((report) => ({
         ...report,
         suggestions: report.suggestions?.map((s) =>
           s.id === suggestionId ? { ...s, status: newStatus } : s
         ) || [],
       }))
-    );
+    }));
+    fetchSummary().then(setSummary).catch(() => {});
   };
 
   const handleRegisterRepo = async (e) => {
@@ -89,8 +117,8 @@ export default function App() {
     
     setRegistering(true);
     try {
-      const newRepo = await registerRepo(repoUrl, repoName);
-      setRepos((prev) => [...prev, newRepo]);
+      await registerRepo(repoUrl, repoName);
+      await fetchAll();
       setShowModal(false);
       setRepoUrl('');
       setRepoName('');
@@ -103,25 +131,21 @@ export default function App() {
   };
 
   const handleRepoUpdated = (updatedRepo) => {
-    setRepos((prev) => prev.map((r) => (r.id === updatedRepo.id ? updatedRepo : r)));
+    setReposPage((prev) => ({
+      ...prev,
+      content: prev.content.map((r) => (r.id === updatedRepo.id ? updatedRepo : r))
+    }));
   };
 
   const handleRepoDeleted = (deletedId) => {
-    setRepos((prev) => prev.filter((r) => r.id !== deletedId));
+    setReposPage((prev) => ({ ...prev, content: prev.content.filter((r) => r.id !== deletedId) }));
+    fetchAll().catch(() => {});
   };
 
-  // Count pending reviews & critical drifts
-  const pendingCount = reports.reduce((acc, r) => {
-    return acc + (r.suggestions?.filter(s => s.status === 'PENDING').length || 0);
-  }, 0);
-
-  const criticalCount = reports.reduce((acc, r) => {
-    return acc + (r.suggestions?.filter(s => s.status === 'PENDING' && (s.severity || '').toUpperCase() === 'CRITICAL').length || 0);
-  }, 0);
-
-  const breakingCount = reports.reduce((acc, r) => {
-    return acc + (r.suggestions?.filter(s => s.status === 'PENDING' && s.isBreakingChange).length || 0);
-  }, 0);
+  // Counts of suggestions awaiting review, across all pages
+  const pendingCount = summary.pending;
+  const criticalCount = summary.critical;
+  const breakingCount = summary.breaking;
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -230,7 +254,7 @@ export default function App() {
             }}
           >
             <AlertTriangle size={16} color={activeTab === 'reports' ? 'var(--accent-primary)' : 'currentColor'} />
-            <span>Drift Reports ({reports.length})</span>
+            <span>Drift Reports ({reportsPage.totalElements})</span>
           </button>
 
           <button
@@ -250,7 +274,7 @@ export default function App() {
             }}
           >
             <GitFork size={16} color={activeTab === 'repos' ? 'var(--accent-primary)' : 'currentColor'} />
-            <span>Tracked Repositories ({repos.length})</span>
+            <span>Tracked Repositories ({reposPage.totalElements})</span>
           </button>
         </div>
 
@@ -302,13 +326,24 @@ export default function App() {
             <p>Loading dashboard data...</p>
           </div>
         ) : activeTab === 'reports' ? (
-          <ReportList reports={reports} onStatusChange={handleStatusChange} />
+          <>
+            <ReportFilters filters={filters} repoNames={repoNames} onChange={handleFiltersChange} />
+            <ReportList
+              reports={reports}
+              onStatusChange={handleStatusChange}
+              filtered={Boolean(filters.repository || filters.severity || filters.status)}
+            />
+            <Pagination {...reportsPage} onPageChange={setReportPageNumber} />
+          </>
         ) : (
-          <RepoList
-            repos={repos}
-            onRepoUpdated={handleRepoUpdated}
-            onRepoDeleted={handleRepoDeleted}
-          />
+          <>
+            <RepoList
+              repos={repos}
+              onRepoUpdated={handleRepoUpdated}
+              onRepoDeleted={handleRepoDeleted}
+            />
+            <Pagination {...reposPage} onPageChange={setRepoPageNumber} />
+          </>
         )}
       </main>
 

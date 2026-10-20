@@ -1,14 +1,19 @@
 package com.docdrift.Docdrift.controller;
 
+import com.docdrift.Docdrift.dto.CreateRepositoryRequest;
+import com.docdrift.Docdrift.dto.PageResponse;
 import com.docdrift.Docdrift.model.RepositoryConfig;
+import com.docdrift.Docdrift.model.RepositoryStatus;
 import com.docdrift.Docdrift.repository.RepositoryConfigRepository;
 import com.docdrift.Docdrift.service.DiffAnalyzerService;
+import jakarta.validation.Valid;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -23,21 +28,31 @@ public class RepositoryController {
         this.diffAnalyzerService = diffAnalyzerService;
     }
 
+    // Only url and name are accepted from clients; id, status and timestamps are always set by the server
     @PostMapping
-    public ResponseEntity<RepositoryConfig> addRepository(@RequestBody RepositoryConfig config) {
-        if (config.getCreatedAt() == null) {
-            config.setCreatedAt(LocalDateTime.now());
+    public ResponseEntity<?> addRepository(@Valid @RequestBody CreateRepositoryRequest request) {
+        String fullName = request.repositoryFromUrl();
+        if (!fullName.equalsIgnoreCase(request.name())) {
+            return ResponseEntity.badRequest().body(Map.of("error",
+                    "name '" + request.name() + "' does not match the URL (expected " + fullName + ")."));
         }
-        if (config.getStatus() == null) {
-            config.setStatus("HEALTHY");
+        if (repository.existsByNameIgnoreCase(fullName)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", fullName + " is already tracked."));
         }
-        RepositoryConfig saved = repository.save(config);
-        return ResponseEntity.ok(saved);
+
+        RepositoryConfig config = new RepositoryConfig();
+        config.setName(fullName);
+        config.setUrl("https://github.com/" + fullName);
+        config.setStatus(RepositoryStatus.HEALTHY);
+        config.setCreatedAt(LocalDateTime.now());
+        return ResponseEntity.status(HttpStatus.CREATED).body(repository.save(config));
     }
-    
+
     @GetMapping
-    public ResponseEntity<List<RepositoryConfig>> getRepositories() {
-        return ResponseEntity.ok(repository.findAll());
+    public PageResponse<RepositoryConfig> getRepositories(@RequestParam(defaultValue = "0") int page,
+                                                          @RequestParam(defaultValue = "20") int size) {
+        PageRequest pageRequest = PageRequest.of(Math.max(page, 0), Math.clamp(size, 1, 100), Sort.by("name"));
+        return PageResponse.from(repository.findAll(pageRequest));
     }
 
     @DeleteMapping("/{id}")
@@ -55,7 +70,7 @@ public class RepositoryController {
         if (config == null) {
             return ResponseEntity.notFound().build();
         }
-        if ("SCANNING".equals(config.getStatus())) {
+        if (config.getStatus() == RepositoryStatus.SCANNING) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "A scan is already running."));
         }
         // The scan runs in the background; the dashboard polls the repository status until it finishes

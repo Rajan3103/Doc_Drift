@@ -2,6 +2,7 @@ package com.docdrift.Docdrift.model;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import org.hibernate.annotations.BatchSize;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -18,5 +19,6 @@ public class DriftReport {
     private LocalDateTime analyzedAt = LocalDateTime.now();
     
     @OneToMany(mappedBy = "report", cascade = CascadeType.ALL)
+    @BatchSize(size = 50) // load suggestions for a whole page of reports in one query
     private List<DriftSuggestion> suggestions;
 }

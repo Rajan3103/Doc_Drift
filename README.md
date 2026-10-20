@@ -21,7 +21,7 @@
 
 ### Backend
 - **Framework**: Spring Boot (Java 21)
-- **Data Access**: Spring Data JPA, Hibernate
+- **Data Access**: Spring Data JPA, Hibernate, Flyway migrations
 - **Database**: PostgreSQL (pgAdmin 4 integration) / H2 in-memory
 - **Networking**: Spring WebFlux (`WebClient` for non-blocking GitHub & Gemini API calls)
 - **Security**: Spring Security (CORS enabled for local frontend integration)
@@ -50,23 +50,41 @@ Docdrift/
 │   │   ├── repository/       # Spring Data JPA Repositories
 │   │   └── service/          # GitHub, Gemini LLM, & Diff Analysis logic
 │   ├── src/main/resources/
+│   │   ├── db/migration/     # Flyway SQL migrations (database schema)
 │   │   └── application.properties
+│   ├── Dockerfile
 │   └── pom.xml
 │
 ├── frontend/                 # Vite + React Dashboard Application
 │   ├── src/
-│   │   ├── components/       # Header, ReportList, SuggestionCard
+│   │   ├── components/       # Header, ReportList, SuggestionCard, filters & pagination
 │   │   ├── api.js            # Axios/Fetch integration with Spring Boot API
 │   │   ├── App.jsx           # Main Dashboard Layout & Repo Tracking Modal
 │   │   └── index.css         # Glassmorphism Design System
+│   ├── Dockerfile
 │   └── package.json
 │
+├── .github/workflows/ci.yml  # Automated build, tests, lint and Docker checks
+├── docker-compose.yml        # Runs database + backend + dashboard together
 └── README.md
 ```
 
 ---
 
 ## ⚙️ Setup and Installation
+
+### Quick start with Docker
+
+The easiest way to run everything (PostgreSQL, backend and dashboard) is Docker Compose:
+
+```bash
+cp .env.example .env      # then fill in the values (see the table below)
+docker compose up --build
+```
+
+Open **http://localhost:5173** and enter your `DOCDRIFT_API_KEY` when asked. Database data is kept in a Docker volume between restarts (`docker compose down -v` deletes it).
+
+To run the pieces yourself instead, follow the steps below.
 
 ### Prerequisites
 - **Java 21** or later
@@ -81,6 +99,7 @@ Docdrift/
    ```sql
    CREATE DATABASE docdrift;
    ```
+   The tables are created automatically on startup by the Flyway migrations in `Docdrift/src/main/resources/db/migration`. Databases created by older DocDrift versions are upgraded in place. To change the schema, add a new `V<number>__description.sql` file there; never edit a migration that has already run.
 3. Set your configuration as **environment variables** (never put real secrets in `application.properties`):
 
    | Variable | Required | What it is |
@@ -168,9 +187,13 @@ curl -X POST http://localhost:8080/api/webhooks/github \
 ```
 
 ### 3. Fetch Drift Reports
+Results are paged (newest first) and can be filtered by `repository`, `severity` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`) and `status` (`PENDING`, `APPROVED`, `REJECTED`):
 ```bash
-curl -H "X-API-Key: $DOCDRIFT_API_KEY" http://localhost:8080/api/reports
+curl -H "X-API-Key: $DOCDRIFT_API_KEY" "http://localhost:8080/api/reports?page=0&size=20&severity=CRITICAL&status=PENDING"
+curl -H "X-API-Key: $DOCDRIFT_API_KEY" http://localhost:8080/api/reports/summary   # pending / critical / breaking counts
+curl -H "X-API-Key: $DOCDRIFT_API_KEY" "http://localhost:8080/api/repos?page=0&size=20"
 ```
+Paged responses look like `{"content": [...], "page": 0, "size": 20, "totalElements": 42, "totalPages": 3}` (maximum `size` is 100).
 
 ### 4. Approve a Suggestion
 ```bash

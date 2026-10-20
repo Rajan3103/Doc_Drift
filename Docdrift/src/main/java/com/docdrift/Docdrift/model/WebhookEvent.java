@@ -23,7 +23,8 @@ public class WebhookEvent {
     
     private LocalDateTime receivedAt = LocalDateTime.now();
     
-    private String status = "PENDING"; // PENDING, PROCESSED, ERROR
+    @Enumerated(EnumType.STRING)
+    private EventStatus status = EventStatus.PENDING;
 
     @Column(columnDefinition = "TEXT")
     private String errorMessage;

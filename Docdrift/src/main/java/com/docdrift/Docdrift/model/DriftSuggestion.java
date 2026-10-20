@@ -13,9 +13,11 @@ public class DriftSuggestion {
     
     private String filePath;
     
-    private String driftType; // API_SIGNATURE_MISMATCH, CONFIG_PROPERTY_CHANGED, CLI_USAGE_CHANGED, BEHAVIORAL_LOGIC_DRIFT, SAMPLE_CODE_BROKEN, API_CONTRACT_BREAKING_CHANGE, SCHEMA_DRIFT
+    @Enumerated(EnumType.STRING)
+    private DriftType driftType;
     
-    private String severity; // CRITICAL, HIGH, MEDIUM, LOW
+    @Enumerated(EnumType.STRING)
+    private Severity severity;
     
     private Double confidenceScore; // 0.0 - 1.0
     
@@ -38,7 +40,8 @@ public class DriftSuggestion {
     @Column(columnDefinition = "TEXT")
     private String reason;
     
-    private String status = "PENDING"; // PENDING, APPROVED, REJECTED
+    @Enumerated(EnumType.STRING)
+    private SuggestionStatus status = SuggestionStatus.PENDING;
 
     private String prUrl; // pull request opened when the suggestion was approved
     

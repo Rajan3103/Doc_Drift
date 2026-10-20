@@ -2,7 +2,9 @@ package com.docdrift.Docdrift.service;
 
 import com.docdrift.Docdrift.dto.WebhookPayload;
 import com.docdrift.Docdrift.model.DriftReport;
+import com.docdrift.Docdrift.model.EventStatus;
 import com.docdrift.Docdrift.model.RepositoryConfig;
+import com.docdrift.Docdrift.model.RepositoryStatus;
 import com.docdrift.Docdrift.model.WebhookEvent;
 import com.docdrift.Docdrift.repository.DriftReportRepository;
 import com.docdrift.Docdrift.repository.DriftSuggestionRepository;
@@ -97,7 +99,7 @@ class DiffAnalyzerServiceTest {
     }
 
     private void awaitScanFinished() {
-        await().atMost(Duration.ofSeconds(10)).until(() -> !"SCANNING".equals(repo().getStatus()));
+        await().atMost(Duration.ofSeconds(10)).until(() -> repo().getStatus() != RepositoryStatus.SCANNING);
     }
 
     @Test
@@ -115,12 +117,12 @@ class DiffAnalyzerServiceTest {
         // deploy.md does not mention anything that changed, so it costs no LLM call
         verify(geminiLlmService, never()).analyzeDrift(eq("docs/deploy.md"), anyString(), anyString());
 
-        assertThat(repo().getStatus()).isEqualTo("DRIFTED");
+        assertThat(repo().getStatus()).isEqualTo(RepositoryStatus.DRIFTED);
         List<DriftReport> reports = driftReportRepository.findAll();
         assertThat(reports).hasSize(1);
         assertThat(reports.getFirst().getCommitSha()).isEqualTo(AFTER);
         WebhookEvent event = webhookEventRepository.findAll().getFirst();
-        assertThat(event.getStatus()).isEqualTo("PROCESSED");
+        assertThat(event.getStatus()).isEqualTo(EventStatus.PROCESSED);
         assertThat(event.getDeliveryId()).isEqualTo("delivery-1");
     }
 
@@ -144,7 +146,7 @@ class DiffAnalyzerServiceTest {
         awaitScanFinished();
 
         verify(gitHubService).getCommitDiff(REPO, AFTER);
-        assertThat(repo().getStatus()).isEqualTo("HEALTHY");
+        assertThat(repo().getStatus()).isEqualTo(RepositoryStatus.HEALTHY);
     }
 
     @Test
@@ -156,7 +158,7 @@ class DiffAnalyzerServiceTest {
         awaitScanFinished();
 
         verify(geminiLlmService, never()).analyzeDrift(any(), any(), any());
-        assertThat(repo().getStatus()).isEqualTo("HEALTHY");
+        assertThat(repo().getStatus()).isEqualTo(RepositoryStatus.HEALTHY);
     }
 
     @Test
@@ -168,9 +170,9 @@ class DiffAnalyzerServiceTest {
         service.processWebhookEvent(push(BEFORE), "delivery-5");
         awaitScanFinished();
 
-        assertThat(repo().getStatus()).isEqualTo("ERROR");
+        assertThat(repo().getStatus()).isEqualTo(RepositoryStatus.ERROR);
         assertThat(repo().getLastError()).contains("model not found");
-        assertThat(webhookEventRepository.findAll().getFirst().getStatus()).isEqualTo("ERROR");
+        assertThat(webhookEventRepository.findAll().getFirst().getStatus()).isEqualTo(EventStatus.ERROR);
     }
 
     @Test
@@ -182,7 +184,7 @@ class DiffAnalyzerServiceTest {
 
         service.scanLatestCommit(repo());
         awaitScanFinished();
-        assertThat(repo().getStatus()).isEqualTo("DRIFTED");
+        assertThat(repo().getStatus()).isEqualTo(RepositoryStatus.DRIFTED);
         assertThat(repo().getLastScannedAt()).isNotNull();
 
         // Scanning the same head again does not create a duplicate report
@@ -199,7 +201,7 @@ class DiffAnalyzerServiceTest {
         service.scanLatestCommit(repo());
         awaitScanFinished();
 
-        assertThat(repo().getStatus()).isEqualTo("ERROR");
+        assertThat(repo().getStatus()).isEqualTo(RepositoryStatus.ERROR);
         assertThat(repo().getLastError()).contains("401 Unauthorized");
     }
 }

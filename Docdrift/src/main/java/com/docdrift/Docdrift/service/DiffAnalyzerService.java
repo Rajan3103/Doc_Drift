@@ -4,7 +4,12 @@ import com.docdrift.Docdrift.dto.LlmSuggestionDto;
 import com.docdrift.Docdrift.dto.WebhookPayload;
 import com.docdrift.Docdrift.model.DriftReport;
 import com.docdrift.Docdrift.model.DriftSuggestion;
+import com.docdrift.Docdrift.model.DriftType;
+import com.docdrift.Docdrift.model.EventStatus;
 import com.docdrift.Docdrift.model.RepositoryConfig;
+import com.docdrift.Docdrift.model.RepositoryStatus;
+import com.docdrift.Docdrift.model.Severity;
+import com.docdrift.Docdrift.model.SuggestionStatus;
 import com.docdrift.Docdrift.model.WebhookEvent;
 import com.docdrift.Docdrift.repository.DriftReportRepository;
 import com.docdrift.Docdrift.repository.DriftSuggestionRepository;
@@ -98,7 +103,7 @@ public class DiffAnalyzerService {
 
         if (headSha == null || commits.isEmpty()) {
             // Branch deletion or a push without commits: nothing to analyse
-            event.setStatus("PROCESSED");
+            event.setStatus(EventStatus.PROCESSED);
             webhookEventRepository.save(event);
             return true;
         }
@@ -210,8 +215,10 @@ public class DiffAnalyzerService {
     private DriftSuggestion toSuggestion(LlmSuggestionDto dto, String docPath, DriftReport report) {
         DriftSuggestion s = new DriftSuggestion();
         s.setFilePath(dto.getFilePath() != null && !dto.getFilePath().isBlank() ? dto.getFilePath() : docPath);
-        s.setDriftType(dto.getDriftType() != null ? dto.getDriftType() : "BEHAVIORAL_LOGIC_DRIFT");
-        s.setSeverity(dto.getSeverity() != null ? dto.getSeverity() : (Boolean.TRUE.equals(dto.getIsBreakingChange()) ? "CRITICAL" : "MEDIUM"));
+        DriftType driftType = DriftType.parse(dto.getDriftType());
+        Severity severity = Severity.parse(dto.getSeverity());
+        s.setDriftType(driftType != null ? driftType : DriftType.BEHAVIORAL_LOGIC_DRIFT);
+        s.setSeverity(severity != null ? severity : (Boolean.TRUE.equals(dto.getIsBreakingChange()) ? Severity.CRITICAL : Severity.MEDIUM));
         s.setConfidenceScore(dto.getConfidenceScore() != null ? dto.getConfidenceScore() : 0.90);
         s.setImpactedSymbol(dto.getImpactedSymbol() != null ? dto.getImpactedSymbol() : "General Codebase");
         s.setIsBreakingChange(Boolean.TRUE.equals(dto.getIsBreakingChange()));
@@ -227,7 +234,7 @@ public class DiffAnalyzerService {
 
     private void markScanning(String repoName) {
         repositoryConfigRepository.findFirstByNameIgnoreCase(repoName).ifPresent(config -> {
-            config.setStatus("SCANNING");
+            config.setStatus(RepositoryStatus.SCANNING);
             repositoryConfigRepository.save(config);
         });
     }
@@ -236,7 +243,7 @@ public class DiffAnalyzerService {
     private void finish(String repoName, Long eventId, String errorMessage, boolean failed) {
         if (eventId != null) {
             webhookEventRepository.findById(eventId).ifPresent(ev -> {
-                ev.setStatus(failed ? "ERROR" : "PROCESSED");
+                ev.setStatus(failed ? EventStatus.ERROR : EventStatus.PROCESSED);
                 ev.setErrorMessage(errorMessage);
                 webhookEventRepository.save(ev);
             });
@@ -244,15 +251,15 @@ public class DiffAnalyzerService {
         repositoryConfigRepository.findFirstByNameIgnoreCase(repoName).ifPresent(config -> {
             config.setLastScannedAt(LocalDateTime.now());
             config.setLastError(errorMessage);
-            config.setStatus(failed ? "ERROR" : statusFromPendingSuggestions(repoName));
+            config.setStatus(failed ? RepositoryStatus.ERROR : statusFromPendingSuggestions(repoName));
             repositoryConfigRepository.save(config);
         });
     }
 
     /** DRIFTED while any suggestion for the repository still awaits review, otherwise HEALTHY. */
-    public String statusFromPendingSuggestions(String repoName) {
-        return driftSuggestionRepository.existsByStatusAndReport_RepositoryNameIgnoreCase("PENDING", repoName)
-                ? "DRIFTED" : "HEALTHY";
+    public RepositoryStatus statusFromPendingSuggestions(String repoName) {
+        return driftSuggestionRepository.existsByStatusAndReport_RepositoryNameIgnoreCase(SuggestionStatus.PENDING, repoName)
+                ? RepositoryStatus.DRIFTED : RepositoryStatus.HEALTHY;
     }
 
     private String truncateDoc(String content) {

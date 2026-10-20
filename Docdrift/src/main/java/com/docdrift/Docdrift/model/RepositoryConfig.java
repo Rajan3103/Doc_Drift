@@ -21,7 +21,8 @@ public class RepositoryConfig {
     @Column(nullable = false)
     private String name; // e.g., owner/repo
 
-    private String status = "HEALTHY"; // HEALTHY, DRIFTED, SCANNING, ERROR
+    @Enumerated(EnumType.STRING)
+    private RepositoryStatus status = RepositoryStatus.HEALTHY;
 
     @Column(columnDefinition = "TEXT")
     private String lastError; // why the most recent scan failed, if it did

@@ -1,5 +1,7 @@
 package com.docdrift.Docdrift.service;
 
+import com.docdrift.Docdrift.model.EventStatus;
+import com.docdrift.Docdrift.model.RepositoryStatus;
 import com.docdrift.Docdrift.repository.RepositoryConfigRepository;
 import com.docdrift.Docdrift.repository.WebhookEventRepository;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -26,13 +28,13 @@ public class InterruptedScanRecovery {
 
     @EventListener(ApplicationReadyEvent.class)
     public void markInterruptedScans() {
-        webhookEventRepository.findByStatus("PENDING").forEach(event -> {
-            event.setStatus("ERROR");
+        webhookEventRepository.findByStatus(EventStatus.PENDING).forEach(event -> {
+            event.setStatus(EventStatus.ERROR);
             event.setErrorMessage(MESSAGE);
             webhookEventRepository.save(event);
         });
-        repositoryConfigRepository.findByStatus("SCANNING").forEach(config -> {
-            config.setStatus("ERROR");
+        repositoryConfigRepository.findByStatus(RepositoryStatus.SCANNING).forEach(config -> {
+            config.setStatus(RepositoryStatus.ERROR);
             config.setLastError(MESSAGE);
             repositoryConfigRepository.save(config);
         });

@@ -1,11 +1,36 @@
 import React, { useState } from 'react';
-import { Check, X, FileText, AlertCircle, Sparkles, AlertTriangle, ShieldAlert, Cpu, Percent, ExternalLink } from 'lucide-react';
-import { approveSuggestion, rejectSuggestion } from '../api';
+import { Check, X, FileText, AlertCircle, Sparkles, AlertTriangle, ShieldAlert, Cpu, Percent, ExternalLink, Pencil, Ruler } from 'lucide-react';
+import { approveSuggestion, rejectSuggestion, editSuggestion } from '../api';
 
-export default function SuggestionCard({ suggestion, onStatusChange }) {
+export default function SuggestionCard({ suggestion, report, onStatusChange, selected = false, onToggleSelect }) {
   const [status, setStatus] = useState(suggestion.status);
   const [prUrl, setPrUrl] = useState(suggestion.prUrl);
   const [loading, setLoading] = useState(false);
+  const [suggestedText, setSuggestedText] = useState(suggestion.suggestedText);
+  const [edited, setEdited] = useState(Boolean(suggestion.originalSuggestedText));
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(suggestion.suggestedText || '');
+
+  // Suggestions without outdated text (rule-based findings) can only be acknowledged, not applied
+  const canApply = Boolean(suggestion.oldText);
+  const prNumber = report?.pullRequestNumber;
+  const approveLabel = !canApply
+    ? 'Acknowledge'
+    : prNumber ? `Approve & Commit to PR #${prNumber}` : 'Approve Fix & Create PR';
+
+  const handleSaveEdit = async () => {
+    setLoading(true);
+    try {
+      const updated = await editSuggestion(suggestion.id, draft);
+      setSuggestedText(updated.suggestedText);
+      setEdited(true);
+      setEditing(false);
+    } catch (e) {
+      alert(e.message || 'Failed to save the edit');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleApprove = async () => {
     setLoading(true);
@@ -225,6 +250,23 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
             ⚡ {getDriftTypeLabel()}
           </span>
 
+          {suggestion.source === 'RULE' && (
+            <span title="Found by DocDrift's deterministic API contract check, not by the AI" style={{
+              background: 'rgba(16, 185, 129, 0.12)',
+              color: '#6ee7b7',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              padding: '2px 8px',
+              borderRadius: '4px',
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}>
+              <Ruler size={11} /> Rule-based check
+            </span>
+          )}
+
           {suggestion.schemaFormat && suggestion.schemaFormat !== 'GENERAL_PROSE' && (
             <span style={{
               background: 'rgba(168, 85, 247, 0.12)',
@@ -317,7 +359,11 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
             <span>- Current Documentation</span>
           </div>
           <pre style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: '#fca5a5', whiteSpace: 'pre-wrap', margin: 0 }}>
-            {suggestion.oldText}
+            {suggestion.oldText || (
+              <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-sans)' }}>
+                No exact text to replace. Update the document by hand, then acknowledge this finding.
+              </span>
+            )}
           </pre>
         </div>
 
@@ -328,12 +374,32 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
           padding: '12px',
           overflowX: 'auto'
         }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span>+ Suggested Fix</span>
+            {edited && <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>(edited by reviewer)</span>}
+            {status === 'PENDING' && !editing && canApply && (
+              <button className="btn btn-outline" onClick={() => { setDraft(suggestedText || ''); setEditing(true); }}
+                style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: '0.72rem' }}>
+                <Pencil size={12} /> Edit
+              </button>
+            )}
           </div>
-          <pre style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: '#6ee7b7', whiteSpace: 'pre-wrap', margin: 0 }}>
-            {suggestion.suggestedText}
-          </pre>
+          {editing ? (
+            <>
+              <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={Math.min(16, Math.max(4, draft.split('\n').length + 1))}
+                aria-label="Suggested fix"
+                style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', background: 'rgba(0, 0, 0, 0.35)',
+                  color: '#6ee7b7', border: '1px solid var(--border-focus)', borderRadius: '6px', padding: '8px' }} />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+                <button className="btn btn-outline" onClick={() => setEditing(false)} disabled={loading}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleSaveEdit} disabled={loading}>Save Edit</button>
+              </div>
+            </>
+          ) : (
+            <pre style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: '#6ee7b7', whiteSpace: 'pre-wrap', margin: 0 }}>
+              {suggestedText}
+            </pre>
+          )}
         </div>
       </div>
 
@@ -347,7 +413,13 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
 
       {/* Actions */}
       {status === 'PENDING' && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', borderTop: '1px solid var(--border-glass)', paddingTop: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', borderTop: '1px solid var(--border-glass)', paddingTop: '16px' }}>
+          {onToggleSelect && canApply && (
+            <label style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              <input type="checkbox" checked={selected} onChange={() => onToggleSelect(suggestion, report)} />
+              Select for a combined fix
+            </label>
+          )}
           <button
             className="btn btn-outline"
             onClick={handleReject}
@@ -359,9 +431,9 @@ export default function SuggestionCard({ suggestion, onStatusChange }) {
           <button
             className="btn btn-primary"
             onClick={handleApprove}
-            disabled={loading}
+            disabled={loading || editing}
           >
-            <Check size={16} /> Approve Fix & Create PR
+            <Check size={16} /> {approveLabel}
           </button>
         </div>
       )}

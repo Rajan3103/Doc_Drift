@@ -1,6 +1,8 @@
 package com.docdrift.Docdrift.controller;
 
+import com.docdrift.Docdrift.dto.PullRequestPayload;
 import com.docdrift.Docdrift.dto.WebhookPayload;
+import com.docdrift.Docdrift.dto.WebhookResult;
 import com.docdrift.Docdrift.repository.RepositoryConfigRepository;
 import com.docdrift.Docdrift.service.DiffAnalyzerService;
 import com.docdrift.Docdrift.service.WebhookSignatureVerifier;
@@ -48,28 +50,38 @@ public class WebhookController {
         if ("ping".equals(eventType)) {
             return ResponseEntity.ok("pong");
         }
-        if (!"push".equals(eventType)) {
+        if (!"push".equals(eventType) && !"pull_request".equals(eventType)) {
             return ResponseEntity.accepted().body("Ignored event type: " + eventType);
         }
 
-        WebhookPayload payload;
+        WebhookPayload.RepositoryPayload repository;
+        WebhookPayload push = null;
+        PullRequestPayload pullRequest = null;
         try {
-            payload = objectMapper.readValue(body, WebhookPayload.class);
+            if ("push".equals(eventType)) {
+                push = objectMapper.readValue(body, WebhookPayload.class);
+                repository = push.getRepository();
+            } else {
+                pullRequest = objectMapper.readValue(body, PullRequestPayload.class);
+                repository = pullRequest.getRepository();
+            }
         } catch (JacksonException e) {
-            return ResponseEntity.badRequest().body("Malformed push payload.");
+            return ResponseEntity.badRequest().body("Malformed " + eventType + " payload.");
         }
 
-        if (payload.getRepository() == null || payload.getRepository().getFull_name() == null) {
-            return ResponseEntity.badRequest().body("Push payload has no repository.");
+        if (repository == null || repository.getFull_name() == null) {
+            return ResponseEntity.badRequest().body("Payload has no repository.");
         }
-        String repoName = payload.getRepository().getFull_name();
+        String repoName = repository.getFull_name();
         if (!repositoryConfigRepository.existsByNameIgnoreCase(repoName)) {
             return ResponseEntity.accepted().body("Repository is not tracked: " + repoName);
         }
 
-        if (!diffAnalyzerService.processWebhookEvent(payload, deliveryId)) {
-            return ResponseEntity.ok("Duplicate delivery ignored.");
-        }
-        return ResponseEntity.ok("Webhook received and processing started.");
+        WebhookResult result = push != null
+                ? diffAnalyzerService.processWebhookEvent(push, deliveryId)
+                : diffAnalyzerService.processPullRequestEvent(pullRequest, deliveryId);
+        return result.outcome() == WebhookResult.Outcome.IGNORED
+                ? ResponseEntity.accepted().body(result.message())
+                : ResponseEntity.ok(result.message());
     }
 }

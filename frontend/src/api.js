@@ -102,3 +102,40 @@ export async function deleteRepo(id) {
 export async function scanRepo(id) {
     return request(`/repos/${id}/scan`, 'Failed to trigger scan', { method: 'POST' });
 }
+
+// Saves a reviewer's edit of the suggested text (only while the suggestion is pending)
+export async function editSuggestion(id, suggestedText) {
+    return request(`/suggestions/${id}`, 'Failed to save the edit', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suggestedText })
+    });
+}
+
+// Approves several suggestions at once; their fixes go into one pull request. Returns { approved, prUrl }
+export async function approveSuggestions(ids) {
+    return request('/suggestions/approve', 'Failed to approve the selected suggestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids })
+    });
+}
+
+// Saves a repository's settings (doc paths, branches, thresholds, alerts)
+export async function updateRepoSettings(id, settings) {
+    return request(`/repos/${id}/settings`, 'Failed to save settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+    });
+}
+
+// Returns [{ date, critical, high, medium, low }] for the last `days` days
+export async function fetchRepoHistory(id, days = 30) {
+    return request(`/repos/${id}/history${query({ days })}`, 'Failed to load drift history');
+}
+
+// Returns a page of webhook deliveries and scans, newest first
+export async function fetchEvents({ page = 0, size = 20, repository } = {}) {
+    return request(`/events${query({ page, size, repository })}`, 'Failed to load activity');
+}

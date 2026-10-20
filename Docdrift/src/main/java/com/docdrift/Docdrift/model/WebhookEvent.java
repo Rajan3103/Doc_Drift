@@ -17,6 +17,8 @@ public class WebhookEvent {
     private String eventType;
     private String commitSha;
     private String repositoryName;
+
+    private Integer pullRequestNumber;
     
     @Column(columnDefinition = "TEXT")
     private String payload;

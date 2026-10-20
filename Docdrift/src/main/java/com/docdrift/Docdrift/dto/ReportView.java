@@ -7,5 +7,5 @@ import java.util.List;
 
 /** A drift report with only the suggestions that match the requested filters. */
 public record ReportView(Long id, String commitSha, String repositoryName, LocalDateTime analyzedAt,
-                         List<DriftSuggestion> suggestions) {
+                         Integer pullRequestNumber, String headBranch, List<DriftSuggestion> suggestions) {
 }

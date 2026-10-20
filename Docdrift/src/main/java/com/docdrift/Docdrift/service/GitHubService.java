@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriBuilder;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
@@ -13,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -93,41 +95,114 @@ public class GitHubService {
                         .toList());
     }
 
+    /** One text replacement in a repository file. */
+    public record TextEdit(String path, String oldText, String newText) {
+    }
+
+    private record FileUpdate(String path, String blobSha, String content) {
+    }
+
     /**
-     * Opens a pull request that replaces oldText with newText in filePath on the repository's default branch.
-     * Returns the PR's html_url. Errors (including oldText not being found) are propagated to the caller.
+     * Opens a pull request against the default branch that applies all edits (several edits may touch the same file).
+     * Returns the PR's html_url. Nothing is written if any oldText is missing.
      */
-    public Mono<String> createDocFixPullRequest(String repositoryName, String filePath, String oldText,
-                                                String newText, String branchName, String title, String body) {
+    public Mono<String> createDocFixPullRequest(String repositoryName, List<TextEdit> edits, String branchName,
+                                                String title, String body) {
         return getJson(repoUri(repositoryName, List.of(), null))
                 .map(repo -> (String) repo.get("default_branch"))
-                .flatMap(baseBranch -> getJson(contentsUri(repositoryName, filePath, baseBranch))
-                        .flatMap(file -> {
-                            String current = decodeContent((String) file.get("content"));
-                            int index = current.indexOf(oldText);
-                            if (index < 0) {
-                                return Mono.error(new IllegalStateException(
-                                        "The outdated text was not found in " + filePath + " on " + baseBranch
-                                                + "; the file may have changed since the scan."));
-                            }
-                            String updated = current.substring(0, index) + newText + current.substring(index + oldText.length());
+                .flatMap(baseBranch -> applyEdits(repositoryName, baseBranch, edits)
+                        .flatMap(updates -> getJson(repoUri(repositoryName, List.of("git", "ref", "heads", baseBranch), null))
+                                .map(ref -> (String) ((Map<?, ?>) ref.get("object")).get("sha"))
+                                .flatMap(baseSha -> postJson(repoUri(repositoryName, List.of("git", "refs"), null),
+                                        Map.of("ref", "refs/heads/" + branchName, "sha", baseSha)))
+                                .then(writeFiles(repositoryName, branchName, updates, title))
+                                .then(postJson(repoUri(repositoryName, List.of("pulls"), null), Map.of(
+                                        "title", title,
+                                        "head", branchName,
+                                        "base", baseBranch,
+                                        "body", body)))
+                                .map(pr -> (String) pr.get("html_url"))));
+    }
 
-                            return getJson(repoUri(repositoryName, List.of("git", "ref", "heads", baseBranch), null))
-                                    .map(ref -> (String) ((Map<?, ?>) ref.get("object")).get("sha"))
-                                    .flatMap(baseSha -> postJson(repoUri(repositoryName, List.of("git", "refs"), null),
-                                            Map.of("ref", "refs/heads/" + branchName, "sha", baseSha)))
-                                    .then(putJson(contentsUri(repositoryName, filePath, null), Map.of(
-                                            "message", title,
-                                            "content", Base64.getEncoder().encodeToString(updated.getBytes(StandardCharsets.UTF_8)),
-                                            "sha", file.get("sha"),
-                                            "branch", branchName)))
-                                    .then(postJson(repoUri(repositoryName, List.of("pulls"), null), Map.of(
-                                            "title", title,
-                                            "head", branchName,
-                                            "base", baseBranch,
-                                            "body", body)))
-                                    .map(pr -> (String) pr.get("html_url"));
-                        }));
+    /** Commits the edits directly to an existing branch, e.g. the branch of the pull request that caused the drift. */
+    public Mono<Void> commitDocFixes(String repositoryName, String branchName, List<TextEdit> edits, String message) {
+        return applyEdits(repositoryName, branchName, edits)
+                .flatMap(updates -> writeFiles(repositoryName, branchName, updates, message));
+    }
+
+    /** Reads each file once at ref and applies its edits in order; fails before writing if any text is missing. */
+    private Mono<List<FileUpdate>> applyEdits(String repositoryName, String ref, List<TextEdit> edits) {
+        Map<String, List<TextEdit>> byFile = new LinkedHashMap<>();
+        edits.forEach(edit -> byFile.computeIfAbsent(edit.path(), path -> new ArrayList<>()).add(edit));
+
+        return Flux.fromIterable(byFile.entrySet())
+                .concatMap(entry -> getJson(contentsUri(repositoryName, entry.getKey(), ref)).flatMap(file -> {
+                    String content = decodeContent((String) file.get("content"));
+                    for (TextEdit edit : entry.getValue()) {
+                        int index = content.indexOf(edit.oldText());
+                        if (index < 0) {
+                            return Mono.<FileUpdate>error(new IllegalStateException(
+                                    "The outdated text was not found in " + edit.path() + " on " + ref
+                                            + "; the file may have changed since the scan."));
+                        }
+                        content = content.substring(0, index) + edit.newText() + content.substring(index + edit.oldText().length());
+                    }
+                    return Mono.just(new FileUpdate(entry.getKey(), (String) file.get("sha"), content));
+                }))
+                .collectList();
+    }
+
+    private Mono<Void> writeFiles(String repositoryName, String branchName, List<FileUpdate> updates, String message) {
+        return Flux.fromIterable(updates)
+                .concatMap(update -> putJson(contentsUri(repositoryName, update.path(), null), Map.of(
+                        "message", message,
+                        "content", Base64.getEncoder().encodeToString(update.content().getBytes(StandardCharsets.UTF_8)),
+                        "sha", update.blobSha(),
+                        "branch", branchName)))
+                .then();
+    }
+
+    /** SHA of the commit's first parent, or empty for a root commit. */
+    public Mono<String> getParentSha(String repositoryName, String sha) {
+        return getJson(repoUri(repositoryName, List.of("commits", sha), null))
+                .flatMap(commit -> {
+                    List<?> parents = (List<?>) commit.getOrDefault("parents", List.of());
+                    return parents.isEmpty() ? Mono.empty() : Mono.just((String) ((Map<?, ?>) parents.getFirst()).get("sha"));
+                });
+    }
+
+    /**
+     * Creates or updates DocDrift's comment on a pull request. The marker (an HTML comment) identifies
+     * the comment so each new push edits it instead of adding another one.
+     */
+    public Mono<Void> upsertPullRequestComment(String repositoryName, int number, String marker, String body) {
+        return webClient.get()
+                .uri(builder -> repoUri(repositoryName, List.of("issues", String.valueOf(number), "comments"), null)
+                        .apply(builder.queryParam("per_page", "100")))
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<List<Map<String, Object>>>() {})
+                .retryWhen(HttpRetry.transientErrors(retryBackoff))
+                .flatMap(comments -> comments.stream()
+                        .filter(comment -> String.valueOf(comment.get("body")).contains(marker))
+                        .findFirst()
+                        .map(existing -> patchJson(repoUri(repositoryName,
+                                List.of("issues", "comments", String.valueOf(existing.get("id"))), null), Map.of("body", body)))
+                        .orElseGet(() -> postJson(repoUri(repositoryName,
+                                List.of("issues", String.valueOf(number), "comments"), null), Map.of("body", body))))
+                .then();
+    }
+
+    /** Sets a commit status (state: success, failure, pending or error). targetUrl may be null. */
+    public Mono<Void> createCommitStatus(String repositoryName, String sha, String state, String context,
+                                         String description, String targetUrl) {
+        Map<String, Object> status = new LinkedHashMap<>();
+        status.put("state", state);
+        status.put("context", context);
+        status.put("description", description.length() > 140 ? description.substring(0, 137) + "..." : description);
+        if (targetUrl != null && !targetUrl.isBlank()) {
+            status.put("target_url", targetUrl);
+        }
+        return postJson(repoUri(repositoryName, List.of("statuses", sha), null), status).then();
     }
 
     private static String decodeContent(String base64Content) {
@@ -170,6 +245,10 @@ public class GitHubService {
 
     private Mono<Map<String, Object>> postJson(Function<UriBuilder, URI> uri, Object requestBody) {
         return webClient.post().uri(uri).bodyValue(requestBody).retrieve().bodyToMono(JSON_MAP);
+    }
+
+    private Mono<Map<String, Object>> patchJson(Function<UriBuilder, URI> uri, Object requestBody) {
+        return webClient.patch().uri(uri).bodyValue(requestBody).retrieve().bodyToMono(JSON_MAP);
     }
 
     private Mono<Map<String, Object>> putJson(Function<UriBuilder, URI> uri, Object requestBody) {

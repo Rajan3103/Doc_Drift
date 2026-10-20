@@ -32,6 +32,16 @@ services:
       DOCDRIFT_API_KEY: ${DOCDRIFT_API_KEY:?Set DOCDRIFT_API_KEY in .env}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:?Set GITHUB_WEBHOOK_SECRET in .env}
       CORS_ALLOWED_ORIGINS: http://localhost:5173
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      LLM_FALLBACK: ${LLM_FALLBACK:-none}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-opus-5-5}
+      DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:5173}
+      # For email alerts, add your SMTP server here, e.g.:
+      #   SPRING_MAIL_HOST: smtp.example.com
+      #   SPRING_MAIL_PORT: 587
+      #   SPRING_MAIL_USERNAME: ${SPRING_MAIL_USERNAME}
+      #   SPRING_MAIL_PASSWORD: ${SPRING_MAIL_PASSWORD}
     ports:
       - "8080:8080"
 

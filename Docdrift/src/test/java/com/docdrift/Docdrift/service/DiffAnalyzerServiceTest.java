@@ -1,6 +1,7 @@
 package com.docdrift.Docdrift.service;
 
 import com.docdrift.Docdrift.dto.WebhookPayload;
+import com.docdrift.Docdrift.dto.WebhookResult;
 import com.docdrift.Docdrift.model.DriftReport;
 import com.docdrift.Docdrift.model.EventStatus;
 import com.docdrift.Docdrift.model.RepositoryConfig;
@@ -23,6 +24,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -56,7 +58,7 @@ class DiffAnalyzerServiceTest {
     @Autowired private DriftSuggestionRepository driftSuggestionRepository;
 
     @MockitoBean private GitHubService gitHubService;
-    @MockitoBean private GeminiLlmService geminiLlmService;
+    @MockitoBean private LlmRouter llmRouter;
 
     @BeforeEach
     void setUp() {
@@ -105,17 +107,17 @@ class DiffAnalyzerServiceTest {
     @Test
     void analysesWholePushOnceAndOnlyRelevantDocs() {
         when(gitHubService.getCompareDiff(REPO, BEFORE, AFTER)).thenReturn(Mono.just(CODE_DIFF));
-        when(geminiLlmService.analyzeDrift(eq("README.md"), anyString(), anyString())).thenReturn(Mono.just(SUGGESTION_JSON));
-        when(geminiLlmService.analyzeDrift(eq("docs/orders.md"), anyString(), anyString())).thenReturn(Mono.just("[]"));
+        when(llmRouter.analyzeDrift(eq("README.md"), anyString(), anyString(), anyList())).thenReturn(Mono.just(SUGGESTION_JSON));
+        when(llmRouter.analyzeDrift(eq("docs/orders.md"), anyString(), anyString(), anyList())).thenReturn(Mono.just("[]"));
 
-        assertThat(service.processWebhookEvent(push(BEFORE), "delivery-1")).isTrue();
+        assertThat(service.processWebhookEvent(push(BEFORE), "delivery-1").outcome()).isEqualTo(WebhookResult.Outcome.STARTED);
         awaitScanFinished();
 
         // One compare diff for the push instead of one diff per commit
         verify(gitHubService).getCompareDiff(REPO, BEFORE, AFTER);
         verify(gitHubService, never()).getCommitDiff(anyString(), anyString());
         // deploy.md does not mention anything that changed, so it costs no LLM call
-        verify(geminiLlmService, never()).analyzeDrift(eq("docs/deploy.md"), anyString(), anyString());
+        verify(llmRouter, never()).analyzeDrift(eq("docs/deploy.md"), anyString(), anyString(), anyList());
 
         assertThat(repo().getStatus()).isEqualTo(RepositoryStatus.DRIFTED);
         List<DriftReport> reports = driftReportRepository.findAll();
@@ -129,18 +131,18 @@ class DiffAnalyzerServiceTest {
     @Test
     void ignoresRedeliveredWebhook() {
         when(gitHubService.getCompareDiff(REPO, BEFORE, AFTER)).thenReturn(Mono.just(CODE_DIFF));
-        when(geminiLlmService.analyzeDrift(anyString(), anyString(), anyString())).thenReturn(Mono.just("[]"));
+        when(llmRouter.analyzeDrift(anyString(), anyString(), anyString(), anyList())).thenReturn(Mono.just("[]"));
 
-        assertThat(service.processWebhookEvent(push(BEFORE), "delivery-2")).isTrue();
+        assertThat(service.processWebhookEvent(push(BEFORE), "delivery-2").outcome()).isEqualTo(WebhookResult.Outcome.STARTED);
         awaitScanFinished();
-        assertThat(service.processWebhookEvent(push(BEFORE), "delivery-2")).isFalse();
+        assertThat(service.processWebhookEvent(push(BEFORE), "delivery-2").outcome()).isEqualTo(WebhookResult.Outcome.DUPLICATE);
         assertThat(webhookEventRepository.findAll()).hasSize(1);
     }
 
     @Test
     void newBranchPushAnalysesHeadCommit() {
         when(gitHubService.getCommitDiff(REPO, AFTER)).thenReturn(Mono.just(CODE_DIFF));
-        when(geminiLlmService.analyzeDrift(anyString(), anyString(), anyString())).thenReturn(Mono.just("[]"));
+        when(llmRouter.analyzeDrift(anyString(), anyString(), anyString(), anyList())).thenReturn(Mono.just("[]"));
 
         service.processWebhookEvent(push("0000000000000000000000000000000000000000"), "delivery-3");
         awaitScanFinished();
@@ -157,14 +159,14 @@ class DiffAnalyzerServiceTest {
         service.processWebhookEvent(push(BEFORE), "delivery-4");
         awaitScanFinished();
 
-        verify(geminiLlmService, never()).analyzeDrift(any(), any(), any());
+        verify(llmRouter, never()).analyzeDrift(any(), any(), any(), any());
         assertThat(repo().getStatus()).isEqualTo(RepositoryStatus.HEALTHY);
     }
 
     @Test
     void recordsLlmFailureInsteadOfReportingNoDrift() {
         when(gitHubService.getCompareDiff(REPO, BEFORE, AFTER)).thenReturn(Mono.just(CODE_DIFF));
-        when(geminiLlmService.analyzeDrift(anyString(), anyString(), anyString()))
+        when(llmRouter.analyzeDrift(anyString(), anyString(), anyString(), anyList()))
                 .thenReturn(Mono.error(new IllegalStateException("model not found")));
 
         service.processWebhookEvent(push(BEFORE), "delivery-5");
@@ -179,8 +181,8 @@ class DiffAnalyzerServiceTest {
     void manualScanUsesDefaultBranchHeadAndSkipsAlreadyAnalysedCommit() {
         when(gitHubService.getDefaultBranchHeadSha(REPO)).thenReturn(Mono.just(AFTER));
         when(gitHubService.getCommitDiff(REPO, AFTER)).thenReturn(Mono.just(CODE_DIFF));
-        when(geminiLlmService.analyzeDrift(eq("README.md"), anyString(), anyString())).thenReturn(Mono.just(SUGGESTION_JSON));
-        when(geminiLlmService.analyzeDrift(eq("docs/orders.md"), anyString(), anyString())).thenReturn(Mono.just("[]"));
+        when(llmRouter.analyzeDrift(eq("README.md"), anyString(), anyString(), anyList())).thenReturn(Mono.just(SUGGESTION_JSON));
+        when(llmRouter.analyzeDrift(eq("docs/orders.md"), anyString(), anyString(), anyList())).thenReturn(Mono.just("[]"));
 
         service.scanLatestCommit(repo());
         awaitScanFinished();

@@ -1,9 +1,13 @@
 import React, { useState } from 'react';
-import { ExternalLink, Play, Trash2, ShieldCheck, ShieldAlert, RefreshCw, Clock, GitFork, XCircle } from 'lucide-react';
+import { ExternalLink, Play, Trash2, ShieldCheck, ShieldAlert, RefreshCw, Clock, GitFork, XCircle, Settings, BarChart3 } from 'lucide-react';
 import { deleteRepo, scanRepo } from '../api';
+import SettingsModal from './SettingsModal';
+import HistoryChart from './HistoryChart';
 
 export default function RepoList({ repos, onRepoUpdated, onRepoDeleted }) {
   const [loadingId, setLoadingId] = useState(null);
+  const [settingsRepo, setSettingsRepo] = useState(null);
+  const [historyRepo, setHistoryRepo] = useState(null);
 
   const handleScan = async (id) => {
     setLoadingId(id);
@@ -118,7 +122,7 @@ export default function RepoList({ repos, onRepoUpdated, onRepoDeleted }) {
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(min(360px, 100%), 1fr))',
       gap: '20px',
       marginTop: '24px'
     }}>
@@ -190,7 +194,7 @@ export default function RepoList({ repos, onRepoUpdated, onRepoDeleted }) {
             )}
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-glass)', paddingTop: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', borderTop: '1px solid var(--border-glass)', paddingTop: '16px' }}>
             <button
               className="btn btn-outline"
               onClick={() => handleDelete(repo.id)}
@@ -202,6 +206,13 @@ export default function RepoList({ repos, onRepoUpdated, onRepoDeleted }) {
               <span>Untrack</span>
             </button>
 
+            <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="btn btn-outline" onClick={() => setSettingsRepo(repo)} title="Repository settings" aria-label="Settings">
+              <Settings size={15} />
+            </button>
+            <button className="btn btn-outline" onClick={() => setHistoryRepo(repo)} title="Drift history" aria-label="Drift history">
+              <BarChart3 size={15} />
+            </button>
             <button
               className="btn btn-primary"
               onClick={() => handleScan(repo.id)}
@@ -210,9 +221,14 @@ export default function RepoList({ repos, onRepoUpdated, onRepoDeleted }) {
               <Play size={15} />
               <span>{loadingId === repo.id || repo.status === 'SCANNING' ? 'Scanning...' : 'Manual Drift Scan'}</span>
             </button>
+            </div>
           </div>
         </div>
       ))}
+      {settingsRepo && (
+        <SettingsModal repo={settingsRepo} onClose={() => setSettingsRepo(null)} onSaved={onRepoUpdated} />
+      )}
+      {historyRepo && <HistoryChart repo={historyRepo} onClose={() => setHistoryRepo(null)} />}
     </div>
   );
 }

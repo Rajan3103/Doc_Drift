@@ -1,8 +1,8 @@
 import React from 'react';
-import { GitCommit, Clock, CheckCircle2 } from 'lucide-react';
+import { GitCommit, Clock, CheckCircle2, GitPullRequest } from 'lucide-react';
 import SuggestionCard from './SuggestionCard';
 
-export default function ReportList({ reports, onStatusChange, filtered = false }) {
+export default function ReportList({ reports, onStatusChange, filtered = false, selectedIds, onToggleSelect }) {
   if (!reports || reports.length === 0) {
     return (
       <div className="glass-panel" style={{
@@ -29,6 +29,8 @@ export default function ReportList({ reports, onStatusChange, filtered = false }
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '8px',
             marginBottom: '16px',
             paddingBottom: '12px',
             borderBottom: '1px solid var(--border-glass)'
@@ -47,13 +49,23 @@ export default function ReportList({ reports, onStatusChange, filtered = false }
                     {report.commitSha?.substring(0, 7) || 'Unknown'}
                   </span>
                 </h2>
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                   {report.repositoryName}
+                  {report.pullRequestNumber && (
+                    <span title="Found by a pull request check" style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '1px 8px', borderRadius: '4px',
+                      background: 'rgba(168, 85, 247, 0.12)', color: '#d8b4fe', border: '1px solid rgba(168, 85, 247, 0.3)',
+                      fontSize: '0.72rem', fontWeight: 600
+                    }}>
+                      <GitPullRequest size={11} /> PR #{report.pullRequestNumber}
+                      {!report.headBranch && ' (fork)'}
+                    </span>
+                  )}
                 </span>
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
               {/* Semantic summary pills */}
               <div style={{ display: 'flex', gap: '6px' }}>
                 {report.suggestions?.some(s => (s.severity || '').toUpperCase() === 'CRITICAL') && (
@@ -93,7 +105,10 @@ export default function ReportList({ reports, onStatusChange, filtered = false }
                 <SuggestionCard
                   key={suggestion.id}
                   suggestion={suggestion}
+                  report={report}
                   onStatusChange={onStatusChange}
+                  selected={selectedIds?.has(suggestion.id) || false}
+                  onToggleSelect={onToggleSelect}
                 />
               ))
             ) : (

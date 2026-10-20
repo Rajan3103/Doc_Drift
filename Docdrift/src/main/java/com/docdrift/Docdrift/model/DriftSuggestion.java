@@ -36,6 +36,12 @@ public class DriftSuggestion {
     
     @Column(columnDefinition = "TEXT")
     private String suggestedText;
+
+    @Column(columnDefinition = "TEXT")
+    private String originalSuggestedText; // the AI's text, kept when a reviewer edits suggestedText
+
+    @Enumerated(EnumType.STRING)
+    private SuggestionSource source = SuggestionSource.AI;
     
     @Column(columnDefinition = "TEXT")
     private String reason;

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Plus, Layers, GitFork, AlertTriangle, KeyRound } from 'lucide-react';
+import { RefreshCw, Plus, Layers, GitFork, AlertTriangle, KeyRound, Activity, Check, X } from 'lucide-react';
 import Header from './components/Header';
 import ReportList from './components/ReportList';
 import RepoList from './components/RepoList';
 import Pagination from './components/Pagination';
 import ReportFilters from './components/ReportFilters';
-import { fetchReports, fetchRepos, fetchSummary, registerRepo, getApiKey, setApiKey, clearApiKey } from './api';
+import ActivityList from './components/ActivityList';
+import { fetchReports, fetchRepos, fetchSummary, registerRepo, approveSuggestions, getApiKey, setApiKey, clearApiKey } from './api';
 
 // Page sizes for the two lists; change these to show more or fewer items per page
 const REPORTS_PAGE_SIZE = 10;
@@ -13,7 +14,7 @@ const REPOS_PAGE_SIZE = 12;
 const EMPTY_PAGE = { content: [], page: 0, totalPages: 0, totalElements: 0 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('reports'); // 'reports' | 'repos'
+  const [activeTab, setActiveTab] = useState('reports'); // 'reports' | 'repos' | 'activity'
   const [reportsPage, setReportsPage] = useState(EMPTY_PAGE);
   const [reposPage, setReposPage] = useState(EMPTY_PAGE);
   const [repoNames, setRepoNames] = useState([]);
@@ -22,6 +23,12 @@ export default function App() {
   const [repoPageNumber, setRepoPageNumber] = useState(0);
   const [filters, setFilters] = useState({ repository: '', severity: '', status: '' });
   const reports = reportsPage.content;
+
+  // Suggestions selected for one combined fix; they must share a repository (and pull request, if any)
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [selectionGroup, setSelectionGroup] = useState(null);
+  const [approvingBatch, setApprovingBatch] = useState(false);
+  const [notice, setNotice] = useState(null); // { text, url }
   const repos = reposPage.content;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -70,6 +77,44 @@ export default function App() {
   useEffect(() => {
     if (!needsApiKey) loadData();
   }, [needsApiKey, reportPageNumber, repoPageNumber, filters]);
+
+  const handleToggleSelect = (suggestion, report) => {
+    const group = `${report.repositoryName.toLowerCase()}#${report.pullRequestNumber ?? ''}`;
+    const next = new Set(selectedIds);
+    if (next.has(suggestion.id)) {
+      next.delete(suggestion.id);
+    } else {
+      if (next.size > 0 && group !== selectionGroup) {
+        alert('Fixes can only be combined for the same repository (and the same pull request).');
+        return;
+      }
+      next.add(suggestion.id);
+    }
+    setSelectedIds(next);
+    setSelectionGroup(next.size > 0 ? group : null);
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectionGroup(null);
+  };
+
+  const handleApproveSelected = async () => {
+    setApprovingBatch(true);
+    try {
+      const result = await approveSuggestions([...selectedIds]);
+      setNotice({
+        text: `${result.approved.length} suggestion(s) approved${result.prUrl ? ' and applied in one change' : ''}.`,
+        url: result.prUrl
+      });
+      clearSelection();
+      await fetchAll();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setApprovingBatch(false);
+    }
+  };
 
   const handleFiltersChange = (newFilters) => {
     setFilters(newFilters);
@@ -151,7 +196,7 @@ export default function App() {
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Header />
 
-      <main className="container" style={{ flex: 1, padding: '32px 24px' }}>
+      <main className="container" style={{ flex: 1, width: '100%', padding: '32px 16px' }}>
         {/* Top Title & Actions Bar */}
         <div style={{
           display: 'flex',
@@ -162,7 +207,7 @@ export default function App() {
           gap: '16px'
         }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
               <h1 style={{ fontSize: '1.75rem', margin: 0 }}>Review Dashboard</h1>
               <span style={{
                 background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2))',
@@ -235,7 +280,8 @@ export default function App() {
           display: 'flex',
           gap: '12px',
           borderBottom: '1px solid var(--border-glass)',
-          marginBottom: '24px'
+          marginBottom: '24px',
+          overflowX: 'auto'
         }}>
           <button
             onClick={() => setActiveTab('reports')}
@@ -276,6 +322,26 @@ export default function App() {
             <GitFork size={16} color={activeTab === 'repos' ? 'var(--accent-primary)' : 'currentColor'} />
             <span>Tracked Repositories ({reposPage.totalElements})</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('activity')}
+            style={{
+              padding: '12px 20px',
+              background: 'none',
+              border: 'none',
+              borderBottom: activeTab === 'activity' ? '2px solid var(--accent-primary)' : '2px solid transparent',
+              color: activeTab === 'activity' ? 'white' : 'var(--text-muted)',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <Activity size={16} color={activeTab === 'activity' ? 'var(--accent-primary)' : 'currentColor'} />
+            <span>Activity</span>
+          </button>
         </div>
 
         {error && (
@@ -288,6 +354,22 @@ export default function App() {
             marginBottom: '24px'
           }}>
             <strong>Connection Error: </strong> {error}
+          </div>
+        )}
+
+        {notice && (
+          <div style={{
+            background: 'var(--success-bg)', border: '1px solid rgba(16, 185, 129, 0.3)', color: 'var(--success)',
+            padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px'
+          }}>
+            <Check size={16} />
+            <span style={{ flex: 1 }}>
+              {notice.text}{' '}
+              {notice.url && <a href={notice.url} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', fontWeight: 600 }}>View on GitHub</a>}
+            </span>
+            <button className="btn btn-outline" onClick={() => setNotice(null)} aria-label="Dismiss" style={{ padding: '4px' }}>
+              <X size={14} />
+            </button>
           </div>
         )}
 
@@ -332,9 +414,13 @@ export default function App() {
               reports={reports}
               onStatusChange={handleStatusChange}
               filtered={Boolean(filters.repository || filters.severity || filters.status)}
+              selectedIds={selectedIds}
+              onToggleSelect={handleToggleSelect}
             />
             <Pagination {...reportsPage} onPageChange={setReportPageNumber} />
           </>
+        ) : activeTab === 'activity' ? (
+          <ActivityList repoNames={repoNames} />
         ) : (
           <>
             <RepoList
@@ -346,6 +432,21 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* Combined-fix bar, shown while suggestions are selected */}
+      {selectedIds.size > 0 && activeTab === 'reports' && (
+        <div className="glass-panel" style={{
+          position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', zIndex: 50,
+          padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px',
+          background: 'var(--bg-secondary)', border: '1px solid var(--border-focus)', maxWidth: 'calc(100vw - 32px)'
+        }}>
+          <span style={{ fontSize: '0.85rem' }}>{selectedIds.size} selected</span>
+          <button className="btn btn-outline" onClick={clearSelection}>Clear</button>
+          <button className="btn btn-primary" onClick={handleApproveSelected} disabled={approvingBatch}>
+            <Check size={16} /> {approvingBatch ? 'Applying...' : 'Approve selected as one change'}
+          </button>
+        </div>
+      )}
 
       {/* Register Repo Modal */}
       {showModal && (

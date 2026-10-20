@@ -11,6 +11,12 @@
 - ⚡ **Classification & Severity Scoring**: Categorizes drift events into distinct types (`API_CONTRACT_BREAKING_CHANGE`, `SCHEMA_DRIFT`, `API_SIGNATURE_MISMATCH`, `CONFIG_PROPERTY_CHANGED`, `CLI_USAGE_CHANGED`, `BEHAVIORAL_LOGIC_DRIFT`, `SAMPLE_CODE_BROKEN`) with confidence metrics (0–100%) and severity levels (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`).
 - 📁 **Multi-Document & Spec Scanning**: Proactively checks multiple documentation targets (`README.md`, `openapi.yaml`, `swagger.json`, `docs/api.md`, `CONTRIBUTING.md`, `ARCHITECTURE.md`) against commit diffs.
 - 💡 **Actionable Patch Generation**: Uses Google's Gemini LLM to generate precise, structured text replacements (`oldText` → `suggestedText`) along with AI reasoning.
+- 🔍 **Pull Request Checks**: Analyses pull requests into watched branches before they merge, keeps one up-to-date DocDrift comment on the PR, and sets a `docdrift/docs` commit status (failing for breaking or critical drift).
+- 📏 **Rule-Based API Contract Check**: Compares the Spring endpoints in changed controllers with your OpenAPI/Swagger spec without any AI, and hands the exact differences to the AI to explain and fix.
+- 🤖 **Choice of AI**: Gemini or Claude, with automatic fallback to the other when one fails.
+- ✍️ **Edit & Batch Approve**: Edit a suggested fix before approving it, and approve several suggestions as a single pull request.
+- ⚙️ **Per-Repository Settings**: Doc paths, watched branches, minimum severity and confidence, PR checks on/off, and Slack/email alerts for breaking or critical drift.
+- 📈 **Activity & History**: A live activity feed of every push, PR check and scan, and a 30-day drift chart per repository.
 - 🛡️ **Human-in-the-Loop Oversight**: No documentation is mutated automatically. Suggestions enter a review queue requiring explicit approval.
 - 🎨 **Modern Review Dashboard**: Premium glassmorphic React dashboard with breaking change alert banners, HTTP method badges, severity tags, side-by-side diffs, and one-click approve/reject actions.
 - 🗄️ **Auditable Persistence**: Tracks all drift reports, suggested fixes, and reviewer actions in PostgreSQL for full historical auditability.
@@ -32,7 +38,7 @@
 - **Styling**: Vanilla CSS (Custom dark-mode glassmorphic design system)
 
 ### AI & Integrations
-- **LLM Engine**: Google Gemini API (`gemini-flash-latest` by default, configurable via `GEMINI_MODEL`)
+- **LLM Engine**: Google Gemini API (`gemini-flash-latest` by default) or Anthropic Claude (`claude-opus-5-5` by default, via the official Anthropic Java SDK), selected with `LLM_PROVIDER`
 - **Version Control**: GitHub REST API & Webhook events
 
 ---
@@ -107,12 +113,20 @@ To run the pieces yourself instead, follow the steps below.
    | `DB_URL` | no | JDBC URL, default `jdbc:postgresql://localhost:5432/docdrift` |
    | `DB_USERNAME` | no | Database user, default `postgres` |
    | `DB_PASSWORD` | yes | Database password |
-   | `GITHUB_PAT` | yes | GitHub token with **Contents: read & write** and **Pull requests: read & write** on tracked repos (needed to open fix PRs) |
+   | `GITHUB_PAT` | yes | GitHub token with **Contents: read & write**, **Pull requests: read & write** and **Commit statuses: read & write** on tracked repos (to open fix PRs, comment on PRs and set statuses) |
    | `GEMINI_API_KEY` | yes | Google Gemini API key |
    | `GEMINI_MODEL` | no | Gemini model name, default `gemini-flash-latest` |
    | `DOCDRIFT_API_KEY` | yes | Any long random string; the dashboard asks for it and sends it as the `X-API-Key` header |
    | `GITHUB_WEBHOOK_SECRET` | yes | Random string; must match the secret set on the GitHub webhook |
    | `CORS_ALLOWED_ORIGINS` | no | Comma-separated dashboard origins, default `http://localhost:5173` (add your Vercel URL in production) |
+   | `LLM_PROVIDER` | no | `gemini` (default) or `claude` |
+   | `LLM_FALLBACK` | no | Provider to try when the main one fails: `claude`, `gemini` or `none` (default) |
+   | `ANTHROPIC_API_KEY` | for Claude | Anthropic API key |
+   | `CLAUDE_MODEL` | no | Claude model, default `claude-opus-5-5` |
+   | `CLAUDE_EFFORT` | no | `low`, `medium` (default), `high`, `xhigh` or `max`. Higher is more thorough and costs more |
+   | `DASHBOARD_URL` | no | Your dashboard's address, linked from PR comments, statuses and alerts |
+   | `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT`, `SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD` | for email alerts | Your SMTP mail server |
+   | `ALERT_EMAIL_FROM` | no | Sender address for email alerts |
 
    Generate random values with `openssl rand -hex 32`. The API and webhook reject all requests until `DOCDRIFT_API_KEY` and `GITHUB_WEBHOOK_SECRET` are set.
 
@@ -120,17 +134,31 @@ To run the pieces yourself instead, follow the steps below.
    - Payload URL: `https://<your-backend>/api/webhooks/github`
    - Content type: `application/json`
    - Secret: the same value as `GITHUB_WEBHOOK_SECRET`
-   - Events: **Just the push event**
+   - Events: choose **Let me select individual events**, then tick **Pushes** and **Pull requests**
 
-   Pushes from repositories that are not tracked in DocDrift are ignored.
+   Events from repositories that are not tracked in DocDrift are ignored, and so are pushes to branches the repository does not watch (by default only the default branch; change it in the repository's ⚙️ settings).
+
+### Repository settings
+
+Each tracked repository has a ⚙️ **Settings** button on the dashboard:
+
+| Setting | What it does |
+|---|---|
+| Documentation to check | Files (`README.md`), folders (`docs/`) or patterns (`api/**.yaml`). Empty = find docs automatically |
+| Branches to watch | Branch names or patterns (`release/*`). Empty = the default branch only. PRs into these branches are checked too |
+| Minimum severity / confidence | Suggestions below these are dropped, to cut noise |
+| Check pull requests | Turn PR comments and statuses on or off |
+| Slack webhook / email | Alerts for breaking or critical drift. Slack URLs must be `https://hooks.slack.com/services/...`, and the URL is never shown again after saving |
 
 ### How a scan works
 
 1. **One diff per push** – a push is analysed as a single combined diff (`before...after`), not one analysis per commit. A manual scan analyses the latest commit on the default branch.
 2. **Diff cleanup** – lockfiles, generated output (`dist/`, `build/`, `target/`, …) and binaries are removed, and the diff is capped in size. Pushes that only change docs are skipped.
 3. **Doc discovery** – DocDrift lists the repository's files and picks Markdown docs and OpenAPI/Swagger specs (not changelogs or licences). API specs and the root README are always checked; other docs only if they mention something the diff removed or changed.
-4. **Analysis** – Gemini returns structured JSON. Temporary GitHub/Gemini failures (rate limits, 5xx, network) are retried.
-5. **Status** – the repository shows `SCANNING` while this runs, then `DRIFTED` (suggestions awaiting review), `HEALTHY`, or `ERROR` with the reason. The dashboard refreshes automatically while a scan runs.
+4. **Contract check** – when an OpenAPI/Swagger spec is among the docs, DocDrift compares the Spring endpoints (`@GetMapping`, `@RequestMapping`, …) in changed controllers before and after the change with the spec. Endpoints removed from code but still documented, or added but undocumented, are exact facts: they're given to the AI to fix, and any the AI misses are listed as **rule-based** suggestions (approve = acknowledge, since there's no exact text to replace).
+5. **Analysis** – the AI (Gemini or Claude) returns structured JSON. Temporary failures (rate limits, 5xx, network) are retried, then the fallback provider is used if one is configured.
+6. **Settings** – suggestions below the repository's minimum severity/confidence are dropped; breaking or critical drift triggers the configured alerts. For pull requests, DocDrift comments and sets the commit status instead of changing the repository's status.
+7. **Status** – the repository shows `SCANNING` while this runs, then `DRIFTED` (suggestions awaiting review), `HEALTHY`, or `ERROR` with the reason. The dashboard refreshes automatically while a scan runs.
 
 Repeated webhook deliveries (same `X-GitHub-Delivery`) are ignored, and a manual scan of an already-analysed commit does not create a duplicate report. Limits are adjustable under "Drift Analysis Limits" in `application.properties`.
 
@@ -195,9 +223,27 @@ curl -H "X-API-Key: $DOCDRIFT_API_KEY" "http://localhost:8080/api/repos?page=0&s
 ```
 Paged responses look like `{"content": [...], "page": 0, "size": 20, "totalElements": 42, "totalPages": 3}` (maximum `size` is 100).
 
-### 4. Approve a Suggestion
+### 4. Review Suggestions
 ```bash
+# Approve one suggestion (opens a PR, or commits to the PR branch for suggestions from a PR check)
 curl -X POST -H "X-API-Key: $DOCDRIFT_API_KEY" http://localhost:8080/api/suggestions/1/approve
+
+# Edit the suggested text before approving
+curl -X PATCH -H "X-API-Key: $DOCDRIFT_API_KEY" -H "Content-Type: application/json" \
+  -d '{"suggestedText":"New wording"}' http://localhost:8080/api/suggestions/1
+
+# Approve several suggestions from one repository as a single pull request
+curl -X POST -H "X-API-Key: $DOCDRIFT_API_KEY" -H "Content-Type: application/json" \
+  -d '{"ids":[1,2,3]}' http://localhost:8080/api/suggestions/approve
+```
+
+### 5. Settings, History and Activity
+```bash
+curl -X PUT -H "X-API-Key: $DOCDRIFT_API_KEY" -H "Content-Type: application/json" \
+  -d '{"docPaths":["README.md","docs/"],"watchedBranches":["main"],"minSeverity":"MEDIUM","minConfidence":0.6,"analyzePullRequests":true,"slackWebhookUrl":null,"alertEmail":null}' \
+  http://localhost:8080/api/repos/1/settings
+curl -H "X-API-Key: $DOCDRIFT_API_KEY" "http://localhost:8080/api/repos/1/history?days=30"   # daily counts by severity
+curl -H "X-API-Key: $DOCDRIFT_API_KEY" "http://localhost:8080/api/events?page=0&size=20"     # pushes, PR checks and scans
 ```
 
 ---

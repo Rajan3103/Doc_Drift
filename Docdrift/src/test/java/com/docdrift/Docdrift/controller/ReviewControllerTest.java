@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -132,8 +133,8 @@ class ReviewControllerTest {
 
     @Test
     void approvingOpensPullRequestAndClearsDriftedStatus() throws Exception {
-        when(gitHubService.createDocFixPullRequest(eq("o/alpha"), eq("README.md"), eq("old"), eq("new"),
-                anyString(), anyString(), anyString()))
+        when(gitHubService.createDocFixPullRequest(eq("o/alpha"),
+                eq(List.of(new GitHubService.TextEdit("README.md", "old", "new"))), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.just("https://github.com/o/alpha/pull/1"));
 
         mockMvc.perform(post("/api/suggestions/" + alphaCritical.getId() + "/approve").header("X-API-Key", "test-api-key"))
@@ -151,8 +152,7 @@ class ReviewControllerTest {
 
     @Test
     void approvalStaysPendingWhenTextNoLongerMatches() throws Exception {
-        when(gitHubService.createDocFixPullRequest(anyString(), anyString(), anyString(), anyString(),
-                anyString(), anyString(), anyString()))
+        when(gitHubService.createDocFixPullRequest(anyString(), anyList(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.error(new IllegalStateException("The outdated text was not found in README.md")));
 
         mockMvc.perform(post("/api/suggestions/" + alphaCritical.getId() + "/approve").header("X-API-Key", "test-api-key"))

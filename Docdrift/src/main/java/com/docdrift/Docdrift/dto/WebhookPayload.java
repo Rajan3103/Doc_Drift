@@ -23,5 +23,6 @@ public class WebhookPayload {
     @Data
     public static class RepositoryPayload {
         private String full_name;
+        private String default_branch;
     }
 }

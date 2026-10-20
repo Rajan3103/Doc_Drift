@@ -62,8 +62,9 @@ class GitHubServiceTest {
     void createsBranchCommitAndPullRequestWithUnencodedSlashes() {
         GitHubService service = serviceWithDocContent("# API\nGET /old/path\n");
 
-        String prUrl = service.createDocFixPullRequest("owner/repo", "docs/api.md",
-                "GET /old/path", "GET /new/path", "docdrift/suggestion-1", "docs: fix", "body").block();
+        String prUrl = service.createDocFixPullRequest("owner/repo",
+                List.of(new GitHubService.TextEdit("docs/api.md", "GET /old/path", "GET /new/path")),
+                "docdrift/suggestion-1", "docs: fix", "body").block();
 
         assertEquals("https://github.com/owner/repo/pull/7", prUrl);
         assertEquals(List.of(
@@ -82,8 +83,9 @@ class GitHubServiceTest {
         GitHubService service = serviceWithDocContent("# API\nalready updated\n");
 
         IllegalStateException e = assertThrows(IllegalStateException.class, () ->
-                service.createDocFixPullRequest("owner/repo", "docs/api.md",
-                        "GET /old/path", "GET /new/path", "b", "t", "body").block());
+                service.createDocFixPullRequest("owner/repo",
+                        List.of(new GitHubService.TextEdit("docs/api.md", "GET /old/path", "GET /new/path")),
+                        "b", "t", "body").block());
         assertTrue(e.getMessage().contains("not found"));
         // Nothing is written to the repository
         assertTrue(requests.stream().noneMatch(r -> !r.method().name().equals("GET")));
@@ -127,5 +129,41 @@ class GitHubServiceTest {
         assertEquals(List.of("docs/api.md", "README.md"), service.listFiles("owner/repo", "abc").block());
         assertEquals("/repos/owner/repo/git/trees/abc", requests.getFirst().url().getRawPath());
         assertEquals("recursive=1", requests.getFirst().url().getRawQuery());
+    }
+
+    @Test
+    void severalEditsToOneFileAreWrittenOnce() {
+        GitHubService service = serviceWithDocContent("# API\nGET /old/path\nPOST /old/create\n");
+
+        service.createDocFixPullRequest("owner/repo", List.of(
+                        new GitHubService.TextEdit("docs/api.md", "GET /old/path", "GET /new/path"),
+                        new GitHubService.TextEdit("docs/api.md", "POST /old/create", "POST /new/create")),
+                "b", "t", "body").block();
+
+        assertEquals(1, requests.stream().filter(r -> r.method().name().equals("PUT")).count());
+        assertEquals(1, requests.stream().filter(r -> r.method().name().equals("GET")
+                && r.url().getRawPath().endsWith("/contents/docs/api.md")).count());
+    }
+
+    @Test
+    void pullRequestCommentIsUpdatedInsteadOfDuplicated() {
+        List<ClientRequest> calls = new ArrayList<>();
+        String[] existing = {"[{\"id\": 5, \"body\": \"unrelated\"}]"};
+        WebClient.Builder builder = WebClient.builder().exchangeFunction(request -> {
+            calls.add(request);
+            String json = request.method().name().equals("GET") ? existing[0] : "{}";
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                    .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE).body(json).build());
+        });
+        GitHubService service = new GitHubService(builder, "https://api.github.com", "token", Duration.ofMillis(1));
+
+        service.upsertPullRequestComment("owner/repo", 3, "<!-- m -->", "<!-- m --> first").block();
+        assertEquals("POST /repos/owner/repo/issues/3/comments",
+                calls.getLast().method().name() + " " + calls.getLast().url().getRawPath());
+
+        existing[0] = "[{\"id\": 5, \"body\": \"unrelated\"}, {\"id\": 77, \"body\": \"<!-- m --> first\"}]";
+        service.upsertPullRequestComment("owner/repo", 3, "<!-- m -->", "<!-- m --> second").block();
+        assertEquals("PATCH /repos/owner/repo/issues/comments/77",
+                calls.getLast().method().name() + " " + calls.getLast().url().getRawPath());
     }
 }
